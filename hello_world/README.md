@@ -8,7 +8,7 @@ Executar em terminais diferentes:
 go run verification/main.go
 go run server.go {PORTA}
 java Server.java {PORTA}
-java Client.go
+java Client.java
 ```
 
 Exemplo: 
@@ -17,7 +17,7 @@ Exemplo:
 go run verification/main.go
 go run server.go 5601
 java Server.java 5602
-java Client.go
+java Client.java
 ```
 
 Observação a porta do servidor de verificação por padrão é a 5610

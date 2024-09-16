@@ -23,6 +23,8 @@ type ServerInfo struct {
 	Enabled bool   `json:"enabled"`
 }
 
+var serverInfo ServerInfo
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Uso: go run main.go <porta>")
@@ -52,7 +54,7 @@ func main() {
 		}
 	}()
 
-	serverInfo := ServerInfo{IP: IP, Port: port, Enabled: true}
+	serverInfo = ServerInfo{IP: IP, Port: port, Enabled: true}
 
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", IP, VerificationPort))
 	if err != nil {
