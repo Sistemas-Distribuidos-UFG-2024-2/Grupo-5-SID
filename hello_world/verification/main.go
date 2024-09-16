@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	PORT         = "5610"
-	PrefixHealth = "/health/"
+	PORT          = "5610"
+	PrefixHealth  = "/health/"
+	PrefixServers = "/servers/"
 )
 
 type ServerInfo struct {
@@ -55,6 +56,14 @@ func handleConnection(conn net.Conn) {
 				fmt.Fprintln(conn, "Erro ao processar a mensagem:", err)
 				continue
 			}
+		case strings.HasPrefix(message, PrefixServers):
+			err := HandleServerList(conn)
+			if err != nil {
+				fmt.Fprintln(conn, "Erro ao processar a lista de servidores:", err)
+				continue
+			}
+		default:
+			fmt.Fprintln(conn, "Comando desconhecido")
 		}
 	}
 }
@@ -90,4 +99,20 @@ func getServerInfoFromSocketMessage(message string) (ServerInfo, error) {
 	}
 
 	return serverInfo, nil
+}
+
+func HandleServerList(conn net.Conn) error {
+	serversSlice := make([]ServerInfo, 0, len(servers))
+	for _, s := range servers {
+		serversSlice = append(serversSlice, s)
+	}
+
+	serverList, err := json.Marshal(serversSlice)
+	if err != nil {
+		return err
+	}
+
+	// Envia a lista de servidores de volta ao cliente
+	fmt.Fprintln(conn, string(serverList))
+	return nil
 }
