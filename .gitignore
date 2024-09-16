@@ -1,0 +1,17 @@
+# Ignorar diretórios de build do Java
+**/out/
+**/bin/
+**/target/
+
+# Ignorar arquivos de configuração e metadados de IDE em qualquer nível
+**/.idea/
+*.iml
+
+# Ignorar arquivos de compilação Java
+**/*.class
+*.project
+*.classpath
+
+# Arquivos de sistema e temporários
+.DS_Store
+Thumbs.db
