@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -20,7 +19,7 @@ type ServerInfo struct {
 	Enabled bool   `json:"enabled"`
 }
 
-var servers = map[string]ServerInfo{}
+var servers = map[int]ServerInfo{}
 
 func main() {
 	ln, err := net.Listen("tcp", ":"+PORT)
@@ -49,28 +48,37 @@ func handleConnection(conn net.Conn) {
 	for {
 		message, _ := reader.ReadString('\n')
 
-		serverInfo, err := getServerInfoFromSocketMessage(message)
-		if err != nil {
-			fmt.Fprintln(conn, "Erro ao decodificar JSON")
-			continue
+		switch {
+		case strings.HasPrefix(message, PrefixHealth):
+			err := HandleNewServer(conn, message)
+			if err != nil {
+				fmt.Fprintln(conn, "Erro ao processar a mensagem:", err)
+				continue
+			}
 		}
-
-		if !serverInfo.Enabled {
-			delete(servers, serverInfo.IP)
-			continue
-		}
-
-		servers[serverInfo.IP] = serverInfo
-
-		fmt.Fprintln(conn, "Mensagem recebida")
-		fmt.Printf("IP: %s, Port: %d\n", serverInfo.IP, serverInfo.Port)
 	}
 }
 
-func getServerInfoFromSocketMessage(message string) (ServerInfo, error) {
-	if !strings.HasPrefix(message, PrefixHealth) {
-		return ServerInfo{}, errors.New("O prefix /health/ nao foi enviado")
+func HandleNewServer(conn net.Conn, message string) error {
+	serverInfo, err := getServerInfoFromSocketMessage(message)
+	if err != nil {
+		fmt.Fprintln(conn, "Erro ao decodificar JSON")
+		return err
 	}
+
+	if !serverInfo.Enabled {
+		delete(servers, serverInfo.Port)
+		return nil
+	}
+
+	servers[serverInfo.Port] = serverInfo
+
+	fmt.Fprintln(conn, "Mensagem recebida")
+	fmt.Printf("IP: %s, Port: %d\n", serverInfo.IP, serverInfo.Port)
+	return nil
+}
+
+func getServerInfoFromSocketMessage(message string) (ServerInfo, error) {
 	message = strings.TrimPrefix(message, PrefixHealth)
 	message = strings.TrimSuffix(message, "\n")
 	var serverInfo ServerInfo
