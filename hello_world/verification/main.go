@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 const (
-	PORT          = "5610"
-	PrefixHealth  = "/health/"
-	PrefixServers = "/servers/"
+	PORT                = "5610"
+	PrefixHealth        = "/health/"
+	PrefixServers       = "/servers/"
+	HealthCheckInterval = 10 * time.Second
 )
 
 type ServerInfo struct {
@@ -31,6 +33,9 @@ func main() {
 	defer ln.Close()
 	fmt.Println("Servidor de verificação na porta " + PORT)
 
+	// Goroutine para verificar a saúde dos servidores periodicamente
+	go healthCheckServers()
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -48,6 +53,7 @@ func handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	for {
 		message, _ := reader.ReadString('\n')
+		message = strings.TrimSpace(message)
 
 		switch {
 		case strings.HasPrefix(message, PrefixHealth):
@@ -76,14 +82,14 @@ func HandleNewServer(conn net.Conn, message string) error {
 	}
 
 	if !serverInfo.Enabled {
+		fmt.Printf("Servidor avisou que está indisponível: %d", serverInfo.Port)
 		delete(servers, serverInfo.Port)
 		return nil
 	}
 
 	servers[serverInfo.Port] = serverInfo
 
-	fmt.Fprintln(conn, "Mensagem recebida")
-	fmt.Printf("IP: %s, Port: %d\n", serverInfo.IP, serverInfo.Port)
+	fmt.Printf("Novo Servidor, IP: %s, Port: %d\n", serverInfo.IP, serverInfo.Port)
 	return nil
 }
 
@@ -115,4 +121,31 @@ func HandleServerList(conn net.Conn) error {
 	// Envia a lista de servidores de volta ao cliente
 	fmt.Fprintln(conn, string(serverList))
 	return nil
+}
+
+// Função para verificar a saúde dos servidores periodicamente
+func healthCheckServers() {
+	for {
+		time.Sleep(HealthCheckInterval)
+
+		for key, server := range servers {
+			address := fmt.Sprintf("%s:%d", server.IP, server.Port)
+			conn, err := net.Dial("tcp", address)
+			if err != nil {
+				fmt.Printf("Servidor %s:%d não está acessível\n", server.IP, server.Port)
+				server.Enabled = false
+				delete(servers, key)
+				continue
+			}
+
+			fmt.Fprintf(conn, "%s\n", PrefixHealth)
+			_, err = bufio.NewReader(conn).ReadString('\n')
+			if err != nil {
+				fmt.Printf("Erro ao verificar o servidor %s:%d: %v\n", server.IP, server.Port, err)
+				server.Enabled = false
+				delete(servers, key)
+			}
+			conn.Close()
+		}
+	}
 }

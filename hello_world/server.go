@@ -9,12 +9,15 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	VerificationPort   = 5610
-	VerificationPrefix = "/health"
+	VerificationPrefix = "/health/"
 	IP                 = "localhost"
+
+	HealthCheckTime = 15 * time.Second
 )
 
 type ServerInfo struct {
@@ -23,7 +26,9 @@ type ServerInfo struct {
 	Enabled bool   `json:"enabled"`
 }
 
-var serverInfo ServerInfo
+var (
+	serverInfo ServerInfo
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -36,6 +41,10 @@ func main() {
 		fmt.Println("Porta inválida. Use um número inteiro.")
 		return
 	}
+
+	// Inicializa as informações do servidor
+	serverInfo = ServerInfo{IP: IP, Port: port, Enabled: true}
+
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		fmt.Println("Erro ao iniciar o servidor:", err)
@@ -48,47 +57,62 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for sig := range c {
-			fmt.Println("Sinal recebido:", sig)
-			fmt.Println("Encerrando o servidor...")
+			fmt.Println("Encerrando o servidor:", sig)
 			os.Exit(1)
 		}
 	}()
 
-	serverInfo = ServerInfo{IP: IP, Port: port, Enabled: true}
-
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", IP, VerificationPort))
-	if err != nil {
-		fmt.Println("Erro ao se conectar ao servidor de verificação:", err)
-	} else {
-		defer conn.Close()
-
-		// Serializa os dados do servidor para JSON
-		serverInfoJSON, err := json.Marshal(serverInfo)
-		if err != nil {
-			fmt.Println("Erro ao converter ServerInfo para JSON:", err)
-			return
+	// Envia informações do servidor para o servidor de verificação
+	go func() {
+		sendServerInfo(true)
+		ticker := time.NewTicker(HealthCheckTime)
+		defer ticker.Stop()
+		for range ticker.C {
+			sendServerInfo(true)
 		}
+	}()
 
-		// Envia a solicitação de verificação
-		fmt.Fprintf(conn, "%s/%s\n", VerificationPrefix, serverInfoJSON)
-
-		// Lê a resposta do servidor de verificação
-		response, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil {
-			fmt.Println("Erro ao ler a resposta do servidor de verificação:", err)
-		} else {
-			fmt.Println("Resposta do servidor de verificação:", response)
-		}
-	}
-
+	// Aceita conexões de clientes
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Println("Erro de conexão:", err)
 			continue
 		}
-
 		go handleConnection(conn)
+	}
+}
+
+func sendServerInfo(enabled bool) {
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", IP, VerificationPort))
+	if err != nil {
+		fmt.Println("Erro ao se conectar ao servidor de verificação:", err)
+		return
+	}
+	defer conn.Close()
+
+	serverInfo.Enabled = enabled
+
+	// Serializa os dados do servidor para JSON
+	serverInfoJSON, err := json.Marshal(serverInfo)
+	if err != nil {
+		fmt.Println("Erro ao converter ServerInfo para JSON:", err)
+		return
+	}
+
+	// Envia a solicitação de verificação
+	_, err = fmt.Fprintf(conn, "%s%s\n", VerificationPrefix, serverInfoJSON)
+	if err != nil {
+		fmt.Println("Erro ao enviar a solicitação de verificação:", err)
+		return
+	}
+
+	// Lê a resposta do servidor de verificação
+	response, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		fmt.Println("Erro ao ler a resposta do servidor de verificação:", err)
+	} else {
+		fmt.Println("Resposta do servidor de verificação:", response)
 	}
 }
 
@@ -100,7 +124,16 @@ func handleConnection(conn net.Conn) {
 		message, _ := reader.ReadString('\n')
 
 		message = strings.TrimSpace(message)
-		if strings.EqualFold(message, "hello") {
+		if strings.HasPrefix(message, VerificationPrefix) {
+			// Responde com as informações do servidor em formato JSON
+			response, err := json.Marshal(serverInfo)
+			if err != nil {
+				fmt.Fprintln(conn, "Erro ao converter ServerInfo para JSON")
+				return
+			}
+			fmt.Fprintf(conn, "%s\n", response)
+			fmt.Println("Resposta de /health enviada:", string(response))
+		} else if strings.EqualFold(message, "hello") {
 			fmt.Fprintln(conn, "world")
 			fmt.Println("Mensagem recebida:", message)
 		}

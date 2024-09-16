@@ -18,7 +18,11 @@ public class Client {
                 out.println("hello");
                 String response = in.readLine();
 
-                System.out.println("Resposta do servidor " + socket.getPort() + " : " + response);
+                if (response != null) {
+                    System.out.println("Resposta do servidor " + socket.getPort() + " : " + response);
+                } else {
+                    System.out.println("Nenhuma resposta recebida do servidor " + socket.getPort());
+                }
                 Thread.sleep(3000);
             } catch (IOException e) {
                 System.out.println("Servidor indisponível. Tentando novamente...");
