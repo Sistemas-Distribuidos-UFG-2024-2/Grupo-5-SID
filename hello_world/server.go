@@ -115,27 +115,34 @@ func sendServerInfo(enabled bool) {
 		fmt.Println("Resposta do servidor de verificação:", response)
 	}
 }
-
 func handleConnection(conn net.Conn) {
-	defer conn.Close()
+    defer conn.Close()
 
-	reader := bufio.NewReader(conn)
-	for {
-		message, _ := reader.ReadString('\n')
+    reader := bufio.NewReader(conn)
+    for {
+        message, _ := reader.ReadString('\n')
+        message = strings.TrimSpace(message)
 
-		message = strings.TrimSpace(message)
-		if strings.HasPrefix(message, VerificationPrefix) {
-			// Responde com as informações do servidor em formato JSON
-			response, err := json.Marshal(serverInfo)
-			if err != nil {
-				fmt.Fprintln(conn, "Erro ao converter ServerInfo para JSON")
-				return
-			}
-			fmt.Fprintf(conn, "%s\n", response)
-			fmt.Println("Resposta de /health enviada:", string(response))
-		} else if strings.EqualFold(message, "hello") {
-			fmt.Fprintln(conn, "world")
-			fmt.Println("Mensagem recebida:", message)
-		}
-	}
+        if strings.HasPrefix(message, "FUNCIONARIO") {
+            parts := strings.Split(message, ",")
+            nome := parts[1]
+            cargo := parts[2]
+            salario, _ := strconv.ParseFloat(parts[3], 64)
+
+            salarioReajustado := calculaReajuste(cargo, salario)
+            response := fmt.Sprintf("Nome: %s, Salário Reajustado: %.2f", nome, salarioReajustado)
+            fmt.Fprintln(conn, response)
+
+            fmt.Println("Dados recebidos e processados:", message)
+        }
+    }
+}
+
+func calculaReajuste(cargo string, salario float64) float64 {
+    if strings.ToLower(cargo) == "operador" {
+        return salario * 1.20
+    } else if strings.ToLower(cargo) == "programador" {
+        return salario * 1.18
+    }
+    return salario
 }
