@@ -15,6 +15,8 @@ const (
 	PrefixServers       = "/servers/"
 	PORT                = "5611"
 	HealthCheckInterval = 10 * time.Second
+	maxPoolSize         = 5                // Quantidade máxima de conexões no pool
+	connIdleTimeout     = 30 * time.Second // Timeout para conexões ociosas
 )
 
 type ServerInfo struct {
@@ -27,6 +29,9 @@ var (
 	servers        []ServerInfo // Lista de servidores ativos
 	serverIndex    int          // Índice do servidor para distribuição
 	serverIndexMux sync.Mutex   // Mutex para evitar condições de corrida no acesso ao índice do servidor
+
+	connPool    = make(map[string][]net.Conn) // Pool de conexões reutilizáveis por servidor
+	connPoolMux sync.Mutex                    // Mutex para proteger o acesso ao pool
 )
 
 func main() {
@@ -116,58 +121,94 @@ func getNextServer() ServerInfo {
 	return selectedServer
 }
 
+// Obtém uma conexão reutilizada ou cria uma nova se necessário
+func getConnection(server ServerInfo) (net.Conn, error) {
+	serverAddr := fmt.Sprintf("%s:%d", server.IP, server.Port)
+
+	connPoolMux.Lock()
+	defer connPoolMux.Unlock()
+
+	// Verifica se já existe uma conexão disponível no pool
+	if pool, exists := connPool[serverAddr]; exists && len(pool) > 0 {
+		conn := pool[len(pool)-1]
+		connPool[serverAddr] = pool[:len(pool)-1]
+		return conn, nil
+	}
+
+	// Se não houver uma conexão no pool, cria uma nova
+	conn, err := net.Dial("tcp", serverAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	return conn, nil
+}
+
+// Libera a conexão de volta para o pool
+func releaseConnection(server ServerInfo, conn net.Conn) {
+	serverAddr := fmt.Sprintf("%s:%d", server.IP, server.Port)
+
+	connPoolMux.Lock()
+	defer connPoolMux.Unlock()
+
+	// Se o pool não tiver atingido o tamanho máximo, coloca a conexão de volta no pool
+	if len(connPool[serverAddr]) < maxPoolSize {
+		connPool[serverAddr] = append(connPool[serverAddr], conn)
+	} else {
+		conn.Close() // Fecha a conexão se o pool estiver cheio
+	}
+}
+
 // Redireciona a requisição do cliente para o servidor selecionado e retorna a resposta ao cliente
 func handleClientConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	for i := 0; i < len(servers); i++ {
-		server := getNextServer()
+	server := getNextServer()
 
-		// Verifica se há servidores disponíveis
-		if server.IP == "" {
-			return
-		}
-
-		serverAddress := fmt.Sprintf("%s:%d", server.IP, server.Port)
-		serverConn, err := net.Dial("tcp", serverAddress)
-		if err != nil {
-			fmt.Fprintf(clientConn, "Erro ao conectar ao servidor: %v\n", err)
-			return
-		}
-		defer serverConn.Close()
-
-		// Cria leitores e escritores para as conexões
-		clientReader := bufio.NewReader(clientConn)
-		serverWriter := bufio.NewWriter(serverConn)
-		serverReader := bufio.NewReader(serverConn)
-		clientWriter := bufio.NewWriter(clientConn)
-
-		// Envia a requisição do cliente para o servidor
-		message, err := clientReader.ReadString('\n')
-		if err != nil {
-			fmt.Fprintf(clientConn, "Erro ao ler mensagem do cliente: %v\n", err)
-			return
-		}
-		_, err = serverWriter.WriteString(message)
-		if err != nil {
-			fmt.Fprintf(clientConn, "Erro ao enviar mensagem para o servidor: %v\n", err)
-			return
-		}
-		serverWriter.Flush()
-
-		// Recebe a resposta do servidor e envia de volta ao cliente
-		response, err := serverReader.ReadString('\n')
-		if err != nil {
-			fmt.Fprintf(clientConn, "Erro ao ler resposta do servidor: %v\n", err)
-			return
-		}
-		_, err = clientWriter.WriteString(response)
-		if err != nil {
-			fmt.Fprintf(clientConn, "Erro ao enviar resposta ao cliente: %v\n", err)
-			return
-		}
-		clientWriter.Flush()
-
-		fmt.Printf("Mensagem retornada, enviada ao servidor: %v\n", server.Port)
+	// Verifica se há servidores disponíveis
+	if server.IP == "" {
+		fmt.Fprintf(clientConn, "Nenhum servidor disponível.\n")
+		return
 	}
+
+	serverConn, err := getConnection(server)
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao conectar ao servidor: %v\n", err)
+		return
+	}
+	defer releaseConnection(server, serverConn)
+
+	// Cria leitores e escritores para as conexões
+	clientReader := bufio.NewReader(clientConn)
+	serverWriter := bufio.NewWriter(serverConn)
+	serverReader := bufio.NewReader(serverConn)
+	clientWriter := bufio.NewWriter(clientConn)
+
+	// Envia a requisição do cliente para o servidor
+	message, err := clientReader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao ler mensagem do cliente: %v\n", err)
+		return
+	}
+	_, err = serverWriter.WriteString(message)
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao enviar mensagem para o servidor: %v\n", err)
+		return
+	}
+	serverWriter.Flush()
+
+	// Recebe a resposta do servidor e envia de volta ao cliente
+	response, err := serverReader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao ler resposta do servidor: %v\n", err)
+		return
+	}
+	_, err = clientWriter.WriteString(response)
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao enviar resposta ao cliente: %v\n", err)
+		return
+	}
+	clientWriter.Flush()
+
+	fmt.Printf("Usando servidor %v, enviada ao cliente: %v", server.Port, message)
 }
