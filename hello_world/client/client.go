@@ -63,6 +63,7 @@ func main() {
     done := make(chan struct{})
 
     // Inicia a goroutine para gerenciar a comunicação com o servidor TCP.
+	// ? #### Threads ####
     go func() {
         log.Println("starting client")
         startClient(done, loadBalancerAddress)
