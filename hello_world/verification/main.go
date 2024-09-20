@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -15,7 +14,6 @@ const (
 	PrefixHealth        = "/health/"
 	PrefixServers       = "/servers/"
 	HealthCheckInterval = 10 * time.Second
-	maxPoolSize         = 5 // Quantidade máxima de conexões no pool
 )
 
 type ServerInfo struct {
@@ -24,12 +22,7 @@ type ServerInfo struct {
 	Enabled bool   `json:"enabled"`
 }
 
-var (
-	servers      = map[int]ServerInfo{}      // Mapa de servidores
-	connPool     = make(map[string]net.Conn) // Pool de conexões TCP reutilizáveis
-	connPoolMux  sync.Mutex                  // Mutex para proteger o acesso ao pool
-	serversMutex sync.Mutex                  // Mutex para proteger a lista de servidores
-)
+var servers = map[int]ServerInfo{}
 
 func main() {
 	ln, err := net.Listen("tcp", ":"+PORT)
@@ -43,13 +36,13 @@ func main() {
 	// Goroutine para verificar a saúde dos servidores periodicamente
 	go healthCheckServers()
 
-	// Aceita conexões de clientes
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Println("Erro de conexão no servidor de verificação:", err)
 			continue
 		}
+
 		go handleConnection(conn)
 	}
 }
@@ -88,16 +81,14 @@ func HandleNewServer(conn net.Conn, message string) error {
 		return err
 	}
 
-	serversMutex.Lock()
-	defer serversMutex.Unlock()
-
 	if !serverInfo.Enabled {
-		fmt.Printf("Servidor avisou que está indisponível: %d\n", serverInfo.Port)
+		fmt.Printf("Servidor avisou que está indisponível: %d", serverInfo.Port)
 		delete(servers, serverInfo.Port)
 		return nil
 	}
 
 	servers[serverInfo.Port] = serverInfo
+
 	fmt.Printf("Novo Servidor, IP: %s, Port: %d\n", serverInfo.IP, serverInfo.Port)
 	return nil
 }
@@ -117,9 +108,6 @@ func getServerInfoFromSocketMessage(message string) (ServerInfo, error) {
 }
 
 func HandleServerList(conn net.Conn) error {
-	serversMutex.Lock()
-	defer serversMutex.Unlock()
-
 	serversSlice := make([]ServerInfo, 0, len(servers))
 	for _, s := range servers {
 		serversSlice = append(serversSlice, s)
@@ -135,65 +123,34 @@ func HandleServerList(conn net.Conn) error {
 	return nil
 }
 
-// Função para verificar a saúde dos servidores periodicamente com reutilização de conexões
+// Função para verificar a saúde dos servidores periodicamente
 func healthCheckServers() {
+	ticker := time.NewTicker(HealthCheckInterval) // Cria o ticker com o intervalo de checagem de saúde
+	defer ticker.Stop()                           // Garante que o ticker será parado quando a função terminar
+
 	for {
-		time.Sleep(HealthCheckInterval)
+		select {
+		case <-ticker.C: // Executa a verificação sempre que o ticker enviar um valor
+			for key, server := range servers {
+				address := fmt.Sprintf("%s:%d", server.IP, server.Port)
+				conn, err := net.Dial("tcp", address)
+				if err != nil {
+					fmt.Printf("Servidor %s:%d não está acessível\n", server.IP, server.Port)
+					server.Enabled = false
+					delete(servers, key)
+					continue
+				}
 
-		serversMutex.Lock()
-		for key, server := range servers {
-			address := fmt.Sprintf("%s:%d", server.IP, server.Port)
-
-			conn, err := getConnection(address)
-			if err != nil {
-				fmt.Printf("Servidor %s:%d não está acessível\n", server.IP, server.Port)
-				server.Enabled = false
-				delete(servers, key)
-				continue
+				// Envia a mensagem de saúde ao servidor
+				fmt.Fprintf(conn, "%s\n", PrefixHealth)
+				_, err = bufio.NewReader(conn).ReadString('\n')
+				if err != nil {
+					fmt.Printf("Erro ao verificar o servidor %s:%d: %v\n", server.IP, server.Port, err)
+					server.Enabled = false
+					delete(servers, key)
+				}
+				conn.Close()
 			}
-
-			// Verifica a saúde do servidor
-			fmt.Fprintf(conn, "%s\n", PrefixHealth)
-			_, err = bufio.NewReader(conn).ReadString('\n')
-			if err != nil {
-				fmt.Printf("Erro ao verificar o servidor %s:%d: %v\n", server.IP, server.Port, err)
-				server.Enabled = false
-				delete(servers, key)
-			} else {
-				server.Enabled = true
-			}
-
-			releaseConnection(address, conn)
 		}
-		serversMutex.Unlock()
 	}
-}
-
-// Obtém uma conexão reutilizada ou cria uma nova se necessário
-func getConnection(address string) (net.Conn, error) {
-	connPoolMux.Lock()
-	defer connPoolMux.Unlock()
-
-	// Verifica se já existe uma conexão disponível no pool
-	if conn, exists := connPool[address]; exists && conn != nil {
-		return conn, nil
-	}
-
-	// Se não houver uma conexão no pool, cria uma nova
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return nil, err
-	}
-
-	connPool[address] = conn
-	return conn, nil
-}
-
-// Libera a conexão de volta para o pool
-func releaseConnection(address string, conn net.Conn) {
-	connPoolMux.Lock()
-	defer connPoolMux.Unlock()
-
-	// Adiciona a conexão de volta ao pool, para reutilização futura
-	connPool[address] = conn
 }
