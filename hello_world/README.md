@@ -9,6 +9,7 @@ go run verification/main.go
 go run loadbalancer/loadbalancer.go
 go run server.go {PORTA}
 java Server.java {PORTA}
+go run client/client.go
 java Client.java
 ```
 
@@ -19,6 +20,7 @@ go run verification/main.go
 go run loadbalancer/loadbalancer.go
 go run server.go 5601
 java Server.java 5602
+go run client/client.go
 java Client.java
 ```
 

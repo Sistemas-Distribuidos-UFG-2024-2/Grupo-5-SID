@@ -26,7 +26,6 @@ func startClient(done chan struct{}, loadBalancerAddress string) {
             log.Println("Received done signal, stopping client")
             return
         case <-ticker.C:
-            // log.Println("Attempting to connect to server")
             conn, err := net.Dial("tcp", loadBalancerAddress)
             if err != nil {
                 log.Println("dial:", err)
@@ -34,23 +33,8 @@ func startClient(done chan struct{}, loadBalancerAddress string) {
             }
             defer conn.Close()
 
-            // // log.Println("Connected to server, sending message")
-            // _, err = fmt.Fprintf(conn, "hello\n")
-            // if err != nil {
-            //     log.Println("write:", err)
-            //     continue
-            // }
-            // // log.Println("Message sent successfully")
+            // input para receber os dados a serem calculados
 
-            // // Recebe a resposta do servidor
-            // reader := bufio.NewReader(conn)
-            // message, err := reader.ReadString('\n')
-            // if err != nil {
-            //     log.Println("read:", err)
-            //     continue
-            // }
-            // log.Printf("Received: %s", message)
-            // Coleta dados do funcionário
             fmt.Print("Nome: ")
             nome, _ := reader.ReadString('\n')
             nome = strings.TrimSpace(nome)
