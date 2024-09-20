@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	PORT                = "5610"
-	PrefixHealth        = "/health/"
+	VerificationServer  = "localhost:5610"
 	PrefixServers       = "/servers/"
+	PORT                = "5611"
 	HealthCheckInterval = 10 * time.Second
 )
 
@@ -23,189 +24,194 @@ type ServerInfo struct {
 }
 
 var (
-	servers     = map[int]ServerInfo{}
-	connPool    = make(map[string]net.Conn) // Pool de conexões
-	connPoolMux = make(chan struct{}, 1)    // Mutex simples com canal
+	servers        []ServerInfo        // Lista de servidores ativos
+	serverIndex    int                 // Índice do servidor para distribuição
+	serverIndexMux sync.Mutex          // Mutex para evitar condições de corrida no acesso ao índice do servidor
+	connPool       map[string]net.Conn // Pool de conexões ativas
+	connPoolMux    sync.Mutex          // Mutex para proteger o acesso ao pool de conexões
 )
 
 func main() {
-	ln, err := net.Listen("tcp", ":"+PORT)
+	connPool = make(map[string]net.Conn) // Inicializa o pool de conexões
+
+	// Atualiza periodicamente a lista de servidores
+	go func() {
+		ticker := time.NewTicker(HealthCheckInterval)
+		defer ticker.Stop() // Para garantir que o ticker seja parado quando a função for encerrada
+
+		for {
+			select {
+			case <-ticker.C:
+				err := updateServerList()
+				if err != nil {
+					fmt.Printf("Erro ao atualizar a lista de servidores: %v\n", err)
+				}
+			}
+		}
+	}()
+
+	// Inicia o load balancer para aceitar requisições de clientes
+	startLoadBalancer()
+}
+
+func startLoadBalancer() {
+	listener, err := net.Listen("tcp", ":"+PORT)
 	if err != nil {
-		fmt.Println("Erro ao iniciar o servidor:", err)
+		fmt.Printf("Erro ao iniciar o Load Balancer: %v\n", err)
 		return
 	}
-	defer ln.Close()
-	fmt.Println("Servidor de verificação na porta " + PORT)
-
-	// Goroutine para verificar a saúde dos servidores periodicamente
-	go healthCheckServers()
+	defer listener.Close()
+	fmt.Printf("Load Balancer rodando na porta %s\n", PORT)
 
 	for {
-		conn, err := ln.Accept()
+		clientConn, err := listener.Accept()
 		if err != nil {
-			fmt.Println("Erro de conexão no servidor de verificação:", err)
+			fmt.Printf("Erro ao aceitar conexão do cliente: %v\n", err)
 			continue
 		}
-
-		go handleConnection(conn)
+		go handleClientConnection(clientConn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+// Consulta o servidor de verificação para obter a lista de servidores
+func updateServerList() error {
+	conn, err := net.Dial("tcp", VerificationServer)
+	if err != nil {
+		return fmt.Errorf("Erro ao conectar ao servidor de verificação: %v", err)
+	}
 	defer conn.Close()
 
+	_, err = fmt.Fprintln(conn, PrefixServers)
+	if err != nil {
+		return fmt.Errorf("Erro ao enviar requisição ao servidor de verificação: %v", err)
+	}
+
 	reader := bufio.NewReader(conn)
-	for {
-		message, _ := reader.ReadString('\n')
-		message = strings.TrimSpace(message)
-
-		switch {
-		case strings.HasPrefix(message, PrefixHealth):
-			err := HandleNewServer(conn, message)
-			if err != nil {
-				fmt.Fprintln(conn, "Erro ao processar a mensagem:", err)
-				continue
-			}
-		case strings.HasPrefix(message, PrefixServers):
-			err := HandleServerList(conn)
-			if err != nil {
-				fmt.Fprintln(conn, "Erro ao processar a lista de servidores:", err)
-				continue
-			}
-		default:
-			fmt.Fprintln(conn, "Comando desconhecido")
-		}
-	}
-}
-
-func HandleNewServer(conn net.Conn, message string) error {
-	serverInfo, err := getServerInfoFromSocketMessage(message)
+	response, err := reader.ReadString('\n')
 	if err != nil {
-		fmt.Fprintln(conn, "Erro ao decodificar JSON")
-		return err
+		return fmt.Errorf("Erro ao ler resposta do servidor de verificação: %v", err)
 	}
 
-	if !serverInfo.Enabled {
-		fmt.Printf("Servidor avisou que está indisponível: %d", serverInfo.Port)
-		delete(servers, serverInfo.Port)
-		removeConnFromPool(serverInfo.IP, serverInfo.Port) // Remove a conexão do pool
-		return nil
+	// Remove o caractere de nova linha do final da resposta
+	response = strings.TrimSpace(response)
+
+	var serverList []ServerInfo
+	err = json.Unmarshal([]byte(response), &serverList)
+	if err != nil {
+		return fmt.Errorf("Erro ao decodificar lista de servidores: %v", err)
 	}
 
-	servers[serverInfo.Port] = serverInfo
-	fmt.Printf("Novo Servidor, IP: %s, Port: %d\n", serverInfo.IP, serverInfo.Port)
+	// Atualiza a lista de servidores globalmente
+	connPoolMux.Lock()
+	defer connPoolMux.Unlock()
+	servers = serverList
+
+	fmt.Println("Lista de servidores atualizada:", servers)
+	fmt.Println("--------------------")
+
 	return nil
 }
 
-func getServerInfoFromSocketMessage(message string) (ServerInfo, error) {
-	message = strings.TrimPrefix(message, PrefixHealth)
-	message = strings.TrimSuffix(message, "\n")
-	var serverInfo ServerInfo
+func getNextServer() ServerInfo {
+	serverIndexMux.Lock()
+	defer serverIndexMux.Unlock()
 
-	err := json.Unmarshal([]byte(message), &serverInfo)
-	if err != nil {
-		return ServerInfo{}, err
+	if len(servers) == 0 {
+		return ServerInfo{}
 	}
 
-	return serverInfo, nil
+	// Seleciona o próximo servidor na lista
+	selectedServer := servers[serverIndex]
+	serverIndex = (serverIndex + 1) % len(servers)
+
+	return selectedServer
 }
 
-func HandleServerList(conn net.Conn) error {
-	serversSlice := make([]ServerInfo, 0, len(servers))
-	for _, s := range servers {
-		serversSlice = append(serversSlice, s)
+// Redireciona a requisição do cliente para o servidor selecionado e retorna a resposta ao cliente
+func handleClientConnection(clientConn net.Conn) {
+	defer clientConn.Close()
+
+	server := getNextServer()
+
+	// Verifica se há servidores disponíveis
+	if server.IP == "" {
+		fmt.Fprintf(clientConn, "Nenhum servidor disponível\n")
+		return
 	}
 
-	serverList, err := json.Marshal(serversSlice)
+	serverAddress := fmt.Sprintf("%s:%d", server.IP, server.Port)
+
+	// Reutiliza uma conexão do pool, se disponível
+	serverConn, err := getServerConnection(serverAddress)
 	if err != nil {
-		return err
+		fmt.Fprintf(clientConn, "Erro ao conectar ao servidor: %v\n", err)
+		return
+	}
+	defer releaseServerConnection(serverAddress, serverConn)
+
+	// Cria leitores e escritores para as conexões
+	clientReader := bufio.NewReader(clientConn)
+	serverWriter := bufio.NewWriter(serverConn)
+	serverReader := bufio.NewReader(serverConn)
+	clientWriter := bufio.NewWriter(clientConn)
+
+	// Envia a requisição do cliente para o servidor
+	message, err := clientReader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao ler mensagem do cliente: %v\n", err)
+		return
 	}
 
-	fmt.Fprintln(conn, string(serverList))
-	return nil
+	_, err = serverWriter.WriteString(message)
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao enviar mensagem para o servidor: %v\n", err)
+		return
+	}
+	serverWriter.Flush()
+
+	// Recebe a resposta do servidor e envia de volta ao cliente
+	response, err := serverReader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao ler resposta do servidor: %v\n", err)
+		return
+	}
+	_, err = clientWriter.WriteString(response)
+	if err != nil {
+		fmt.Fprintf(clientConn, "Erro ao enviar resposta ao cliente: %v\n", err)
+		return
+	}
+	clientWriter.Flush()
+
+	fmt.Printf("Mensagem redirecionada para o servidor %s e resposta enviada ao cliente\n", serverAddress)
 }
 
-// Função para verificar a saúde dos servidores periodicamente
-func healthCheckServers() {
-	ticker := time.NewTicker(HealthCheckInterval)
-	defer ticker.Stop()
+// getServerConnection reutiliza ou cria uma nova conexão para o servidor
+func getServerConnection(serverAddress string) (net.Conn, error) {
+	connPoolMux.Lock()
+	defer connPoolMux.Unlock()
 
-	for {
-		select {
-		case <-ticker.C:
-			for key, server := range servers {
-				address := fmt.Sprintf("%s:%d", server.IP, server.Port)
-
-				conn, err := getOrCreateConnection(address) // Reutiliza ou cria conexão
-				if err != nil {
-					fmt.Printf("Servidor %s:%d não está acessível\n", server.IP, server.Port)
-					server.Enabled = false
-					delete(servers, key)
-					continue
-				}
-
-				fmt.Fprintf(conn, "%s\n", PrefixHealth)
-				_, err = bufio.NewReader(conn).ReadString('\n')
-				if err != nil {
-					fmt.Printf("Erro ao verificar o servidor %s:%d: %v\n", server.IP, server.Port, err)
-					server.Enabled = false
-					delete(servers, key)
-					removeConnFromPool(server.IP, server.Port) // Remove a conexão do pool em caso de erro
-				}
-			}
-		}
-	}
-}
-
-// Função para criar ou reutilizar uma conexão
-func getOrCreateConnection(address string) (net.Conn, error) {
-	// Bloqueia o pool de conexões
-	connPoolMux <- struct{}{}
-	defer func() { <-connPoolMux }()
-
-	// Verifica se a conexão já existe no pool
-	if conn, ok := connPool[address]; ok {
-		// Verifica se a conexão ainda está ativa
-		if isConnAlive(conn) {
-			return conn, nil
-		}
-		// Se a conexão não estiver ativa, remove-a do pool
-		conn.Close()
-		delete(connPool, address)
+	if conn, exists := connPool[serverAddress]; exists {
+		return conn, nil
 	}
 
-	// Cria uma nova conexão se não houver conexão reutilizável
-	conn, err := net.Dial("tcp", address)
+	// Se não houver conexão no pool, cria uma nova
+	conn, err := net.Dial("tcp", serverAddress)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Erro ao conectar ao servidor: %v", err)
 	}
 
-	// Adiciona a nova conexão ao pool
-	connPool[address] = conn
+	// Adiciona ao pool para reutilização futura
+	connPool[serverAddress] = conn
 	return conn, nil
 }
 
-// Função para verificar se uma conexão está viva
-func isConnAlive(conn net.Conn) bool {
-	one := []byte{}
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-	_, err := conn.Read(one)
-	if err == nil || err == net.ErrTimeout {
-		conn.SetReadDeadline(time.Time{}) // Remove o deadline após o teste
-		return true
-	}
-	return false
-}
+// releaseServerConnection devolve a conexão ao pool
+func releaseServerConnection(serverAddress string, conn net.Conn) {
+	connPoolMux.Lock()
+	defer connPoolMux.Unlock()
 
-// Função para remover uma conexão do pool
-func removeConnFromPool(ip string, port int) {
-	address := fmt.Sprintf("%s:%d", ip, port)
-
-	connPoolMux <- struct{}{}
-	defer func() { <-connPoolMux }()
-
-	if conn, ok := connPool[address]; ok {
-		conn.Close()
-		delete(connPool, address)
+	// Se a conexão ainda estiver ativa, devolve-a ao pool
+	if _, exists := connPool[serverAddress]; !exists {
+		connPool[serverAddress] = conn
 	}
 }
