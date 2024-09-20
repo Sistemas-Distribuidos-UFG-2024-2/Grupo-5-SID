@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -15,6 +17,8 @@ func startClient(done chan struct{}, loadBalancerAddress string) {
     // Ticker para enviar mensagens periodicamente.
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
+
+    reader := bufio.NewReader(os.Stdin)
 
     for {
         select {
@@ -30,22 +34,53 @@ func startClient(done chan struct{}, loadBalancerAddress string) {
             }
             defer conn.Close()
 
-            // log.Println("Connected to server, sending message")
-            _, err = fmt.Fprintf(conn, "hello\n")
+            // // log.Println("Connected to server, sending message")
+            // _, err = fmt.Fprintf(conn, "hello\n")
+            // if err != nil {
+            //     log.Println("write:", err)
+            //     continue
+            // }
+            // // log.Println("Message sent successfully")
+
+            // // Recebe a resposta do servidor
+            // reader := bufio.NewReader(conn)
+            // message, err := reader.ReadString('\n')
+            // if err != nil {
+            //     log.Println("read:", err)
+            //     continue
+            // }
+            // log.Printf("Received: %s", message)
+            // Coleta dados do funcionário
+            fmt.Print("Nome: ")
+            nome, _ := reader.ReadString('\n')
+            nome = strings.TrimSpace(nome)
+
+            fmt.Print("Cargo: ")
+            cargo, _ := reader.ReadString('\n')
+            cargo = strings.TrimSpace(cargo)
+
+            fmt.Print("Salário: ")
+            salarioStr, _ := reader.ReadString('\n')
+            salarioStr = strings.TrimSpace(salarioStr)
+            salario, err := strconv.ParseFloat(salarioStr, 64)
             if err != nil {
-                log.Println("write:", err)
+                log.Println("Erro ao converter salário:", err)
                 continue
             }
-            // log.Println("Message sent successfully")
 
-            // Recebe a resposta do servidor
-            reader := bufio.NewReader(conn)
-            message, err := reader.ReadString('\n')
+            // Envia dados para o servidor
+            message := fmt.Sprintf("FUNCIONARIO,%s,%s,%.2f", nome, cargo, salario)
+            fmt.Fprintf(conn, message+"\n")
+
+            // Recebe resposta
+            response, err := bufio.NewReader(conn).ReadString('\n')
             if err != nil {
                 log.Println("read:", err)
                 continue
             }
-            log.Printf("Received: %s", message)
+            log.Printf("Received: %s", strings.TrimSpace(response))
+
+            time.Sleep(3000 * time.Millisecond)
         }
     }
 }
