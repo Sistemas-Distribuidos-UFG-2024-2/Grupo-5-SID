@@ -119,6 +119,9 @@ func getNextServer() ServerInfo {
 	if len(servers) == 0 {
 		return ServerInfo{}
 	}
+	if serverIndex >= len(servers) {
+		serverIndex = 0
+	}
 
 	// Seleciona o próximo servidor na lista
 	selectedServer := servers[serverIndex]
@@ -131,23 +134,47 @@ func getNextServer() ServerInfo {
 func handleClientConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	server := getNextServer()
+	var serverConn net.Conn
+	var err error
+	var server ServerInfo
 
-	// Verifica se há servidores disponíveis
-	if server.IP == "" {
+	// Bloqueia o acesso à lista de servidores para evitar condições de corrida
+	serverIndexMux.Lock()
+	if len(servers) == 0 {
+		serverIndexMux.Unlock()
 		fmt.Fprintf(clientConn, "Nenhum servidor disponível\n")
 		return
 	}
+	serverIndexMux.Unlock()
 
-	serverAddress := fmt.Sprintf("%s:%d", server.IP, server.Port)
+	// Tenta conectar a cada servidor até conseguir ou esgotar a lista
+	for i := 0; i < len(servers); i++ {
+		server = getNextServer()
 
-	// Reutiliza uma conexão do pool, se disponível
-	serverConn, err := getServerConnection(serverAddress)
+		// Verifica se há servidores disponíveis
+		if server.IP == "" {
+			fmt.Fprintf(clientConn, "Nenhum servidor disponível\n")
+			return
+		}
+
+		serverAddress := fmt.Sprintf("%s:%d", server.IP, server.Port)
+
+		// Reutiliza uma conexão do pool, se disponível
+		serverConn, err = getServerConnection(serverAddress)
+		if err == nil {
+			// Conexão bem-sucedida
+			break
+		} else {
+			fmt.Printf("Erro ao conectar ao servidor %s:%d, tentando outro...: %v\n", server.IP, server.Port, err)
+		}
+	}
+
+	// Se não conseguir se conectar a nenhum servidor, retorna erro ao cliente
 	if err != nil {
-		fmt.Fprintf(clientConn, "Erro ao conectar ao servidor: %v\n", err)
+		fmt.Fprintf(clientConn, "Erro: não foi possível conectar a nenhum servidor\n")
 		return
 	}
-	defer releaseServerConnection(serverAddress, serverConn)
+	defer releaseServerConnection(fmt.Sprintf("%s:%d", server.IP, server.Port), serverConn)
 
 	// Cria leitores e escritores para as conexões
 	clientReader := bufio.NewReader(clientConn)
@@ -182,7 +209,7 @@ func handleClientConnection(clientConn net.Conn) {
 	}
 	clientWriter.Flush()
 
-	fmt.Printf("Mensagem redirecionada para o servidor %s e resposta enviada ao cliente\n", serverAddress)
+	fmt.Printf("Mensagem redirecionada para o servidor %s:%d e resposta enviada ao cliente\n", server.IP, server.Port)
 }
 
 // getServerConnection reutiliza ou cria uma nova conexão para o servidor

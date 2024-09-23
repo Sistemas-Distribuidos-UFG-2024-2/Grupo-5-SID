@@ -15,10 +15,12 @@ import (
 // Função que gerencia a comunicação com o servidor TCP.
 func startClient(done chan struct{}, loadBalancerAddress string) {
 	// Ticker para enviar mensagens periodicamente.
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	reader := bufio.NewReader(os.Stdin)
+
+	var flagAuto bool
 
 	for {
 		select {
@@ -35,9 +37,20 @@ func startClient(done chan struct{}, loadBalancerAddress string) {
 
 			// input para receber os dados a serem calculados
 
+			if flagAuto {
+				sendToServer("Auto", "programador", 1000, conn)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
 			fmt.Print("Nome: ")
 			nome, _ := reader.ReadString('\n')
 			nome = strings.TrimSpace(nome)
+
+			if nome == "auto" {
+				flagAuto = true
+				continue
+			}
 
 			fmt.Print("Cargo: ")
 			cargo, _ := reader.ReadString('\n')
@@ -52,21 +65,22 @@ func startClient(done chan struct{}, loadBalancerAddress string) {
 				continue
 			}
 
-			// Envia dados para o servidor
-			message := fmt.Sprintf("FUNCIONARIO,%s,%s,%.2f", nome, cargo, salario)
-			fmt.Fprintf(conn, message+"\n")
-
-			// Recebe resposta
-			response, err := bufio.NewReader(conn).ReadString('\n')
-			if err != nil {
-				log.Println("read:", err)
-				continue
-			}
-			log.Printf("Received: %s", strings.TrimSpace(response))
-
-			time.Sleep(3000 * time.Millisecond)
+			sendToServer(nome, cargo, salario, conn)
 		}
 	}
+}
+
+func sendToServer(nome string, cargo string, salario float64, conn net.Conn) {
+	// Envia dados para o servidor
+	message := fmt.Sprintf("FUNCIONARIO,%s,%s,%.2f", nome, cargo, salario)
+	fmt.Fprintf(conn, message+"\n")
+
+	// Recebe resposta
+	response, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		log.Println("read:", err)
+	}
+	log.Printf("Received: %s", strings.TrimSpace(response))
 }
 
 func main() {

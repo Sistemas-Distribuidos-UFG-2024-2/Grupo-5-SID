@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ const (
 	PORT                = "5610"
 	PrefixHealth        = "/health/"
 	PrefixServers       = "/servers/"
-	HealthCheckInterval = 10 * time.Second
+	HealthCheckInterval = 3 * time.Second
 )
 
 type ServerInfo struct {
@@ -125,34 +126,42 @@ func HandleServerList(conn net.Conn) error {
 	return nil
 }
 
-// Função para verificar a saúde dos servidores periodicamente
 func healthCheckServers() {
-	ticker := time.NewTicker(HealthCheckInterval)
-	defer ticker.Stop()
+	ticker := time.NewTicker(HealthCheckInterval) // Cria o ticker com o intervalo de tempo definido
+	defer ticker.Stop()                           // Para o ticker quando a função for encerrada
 
-	for {
-		select {
-		case <-ticker.C:
-			for key, server := range servers {
-				address := fmt.Sprintf("%s:%d", server.IP, server.Port)
+	for range ticker.C { // Executa a cada intervalo definido por HealthCheckInterval
+		if len(servers) == 0 {
+			fmt.Println("Nenhum servidor registrado para verificação.")
+			continue
+		}
 
-				conn, err := getOrCreateConnection(address) // Reutiliza ou cria conexão
-				if err != nil {
-					fmt.Printf("Servidor %s:%d não está acessível\n", server.IP, server.Port)
-					server.Enabled = false
-					delete(servers, key)
-					continue
-				}
+		for key, server := range servers {
+			address := fmt.Sprintf("%s:%d", server.IP, server.Port)
 
-				fmt.Fprintf(conn, "%s\n", PrefixHealth)
-				_, err = bufio.NewReader(conn).ReadString('\n')
-				if err != nil {
-					fmt.Printf("Erro ao verificar o servidor %s:%d: %v\n", server.IP, server.Port, err)
-					server.Enabled = false
-					delete(servers, key)
-					removeConnFromPool(server.IP, server.Port) // Remove a conexão do pool em caso de erro
-				}
+			// Conexão direta com o servidor para health check
+			conn, err := net.Dial("tcp", address) // Cria uma nova conexão para o servidor
+			if err != nil {
+				fmt.Printf("Servidor %s:%d não está acessível. Removendo do registro.\n", server.IP, server.Port)
+				delete(servers, key) // Remove o servidor do mapa diretamente
+				continue
 			}
+
+			serverReader := bufio.NewReader(conn)
+			serverWriter := bufio.NewWriter(conn)
+			fmt.Fprintf(serverWriter, "%s\n", PrefixHealth)
+			serverWriter.Flush() // Envia o comando de health check
+
+			_, err = serverReader.ReadString('\n')
+			if err != nil {
+				fmt.Printf("Erro ao verificar o servidor %s:%d: %v. Removendo do registro.\n", server.IP, server.Port, err)
+				delete(servers, key) // Remove o servidor do mapa diretamente
+			} else {
+				server.Enabled = true
+				servers[key] = server
+				fmt.Printf("Servidor %s:%d está saudável.\n", server.IP, server.Port)
+			}
+			conn.Close() // Fecha a conexão após a verificação
 		}
 	}
 }
@@ -187,11 +196,12 @@ func getOrCreateConnection(address string) (net.Conn, error) {
 
 // Função para verificar se uma conexão está viva
 func isConnAlive(conn net.Conn) bool {
+	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 	one := []byte{}
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-	_, err := conn.Read(one)
-	if err == nil {
-		conn.SetReadDeadline(time.Time{}) // Remove o deadline após o teste
+	// Tentativa de leitura não bloqueante
+	if _, err := conn.Read(one); err == nil || err == io.EOF {
+		// Se a conexão está ativa ou EOF, ainda podemos usar a conexão
+		conn.SetReadDeadline(time.Time{}) // Remova o deadline após o teste
 		return true
 	}
 	return false
