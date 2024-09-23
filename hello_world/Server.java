@@ -46,6 +46,7 @@ public class Server {
 
         while (true) {
             try (Socket clientSocket = serverSocket.accept()) {
+                new Thread(() -> handleConnection(clientSocket)).start();
                 BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
                 PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
 
@@ -81,5 +82,39 @@ public class Server {
             System.out.println("Resposta do servidor de verificação: " + verificationResponse);
         }
     }
-}
 
+    private static void handleConnection(Socket conn) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+             PrintWriter writer = new PrintWriter(conn.getOutputStream(), true)) {
+
+            String message;
+            while ((message = reader.readLine()) != null) {
+                message = message.trim();
+
+                if (message.startsWith("FUNCIONARIO")) {
+                    String[] parts = message.split(",");
+                    String nome = parts[1];
+                    String cargo = parts[2];
+                    double salario = Double.parseDouble(parts[3]);
+
+                    double salarioReajustado = calculaReajuste(cargo, salario);
+                    String response = String.format("Nome: %s, Salário Reajustado JAVA: %.2f", nome, salarioReajustado);
+                    writer.println(response);
+
+                    System.out.println("Dados recebidos e processados no servidor java: " + message);
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("Erro ao processar a conexão: " + e.getMessage());
+        }
+    }
+
+    private static double calculaReajuste(String cargo, double salario) {
+        if (cargo.equalsIgnoreCase("operador")) {
+            return salario * 1.20;
+        } else if (cargo.equalsIgnoreCase("programador")) {
+            return salario * 1.18;
+        }
+        return salario;
+    }
+}
