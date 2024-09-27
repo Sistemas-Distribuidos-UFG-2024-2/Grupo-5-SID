@@ -1,4 +1,4 @@
-# Grupo 5 - Sistema de Leilão Distribuído
+# Grupo 5 - Sistema de Leilão Distribuído (SID)
 
 
 <img src="assets/leilao.jpg" width="120" height="120" alt="Logo SID">
