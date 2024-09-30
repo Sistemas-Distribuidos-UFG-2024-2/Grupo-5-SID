@@ -6,7 +6,9 @@ CREATE SCHEMA IF NOT EXISTS schema_accounts;
 
 -- Criar a tabela accounts no schema schema_accounts
 CREATE TABLE schema_accounts.accounts (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    mail VARCHAR(255) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- Criar o schema schema_auction
