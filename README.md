@@ -19,3 +19,11 @@ Cleverson Oliveira
 
 
 <img src="assets/sid.jpg" width="80" height="80" alt="Logo SID">
+
+
+## Como executar o projeto ?
+
+Executar:
+```
+docker-compose up -d
+``` 
