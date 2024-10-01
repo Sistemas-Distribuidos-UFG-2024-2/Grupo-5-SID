@@ -1,0 +1,16 @@
+# prometheus.yml
+global:
+  scrape_interval: 15s  # Intervalo de coleta de métricas
+
+scrape_configs:
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis_container:6379']  # O nome do serviço e a porta do Redis
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres_container:5432']  # O nome do serviço e a porta do PostgreSQL
+
+  - job_name: 'auction_service'  # Nome do job
+    static_configs:
+      - targets: ['host.docker.internal:6003']  # Alvo do servidor onde as métricas estão expostas

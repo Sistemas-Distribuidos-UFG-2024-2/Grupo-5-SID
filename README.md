@@ -23,7 +23,19 @@ Cleverson Oliveira
 
 ## Como executar o projeto ?
 
-Executar:
+1. Executar:
 ```
 docker-compose up -d
-``` 
+```
+
+2. Acessar o Grafana e o Prometheus
+   O Grafana estará disponível em http://localhost:3000 (credenciais padrão: admin / admin123).
+   O Prometheus estará disponível em http://localhost:9090.
+3. Configurar o Grafana
+   Após acessar o Grafana, você pode adicionar o Prometheus como uma fonte de dados:
+
+- Faça login no Grafana.
+- Vá para Configuration (Configuração) > Data Sources (Fontes de Dados).
+- Clique em Add data source (Adicionar fonte de dados).
+- Selecione Prometheus e configure a URL como http://prometheus_container:9090.
+- Salve as configurações.
