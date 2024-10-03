@@ -39,3 +39,6 @@ docker-compose up -d
 - Clique em Add data source (Adicionar fonte de dados).
 - Selecione Prometheus e configure a URL como http://prometheus_container:9090.
 - Salve as configurações.
+
+4. Instalar docker
+5. Rodar o comando docker-compose up -d no diretório "email".
