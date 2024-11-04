@@ -47,7 +47,7 @@ func clienteHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		query := `INSERT INTO cliente (nome, leilao) VALUES (?, ?)`
+		query := `INSERT INTO cliente (nome, email) VALUES (?, ?)`
 		_, err = db.Exec(query, cliente.Nome, cliente.Email)
 		if err != nil {
 			http.Error(w, "Erro ao salvar no banco de dados", http.StatusInternalServerError)

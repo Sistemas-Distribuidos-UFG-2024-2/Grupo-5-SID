@@ -23,7 +23,7 @@ Cleverson Oliveira
 
 ## Como executar o projeto ?
 
-1. Executar:
+1. Executar: (antes instalar docker e abrir docker desktop)
 ```
 docker-compose up -d
 ```
@@ -39,6 +39,3 @@ docker-compose up -d
 - Clique em Add data source (Adicionar fonte de dados).
 - Selecione Prometheus e configure a URL como http://prometheus_container:9090.
 - Salve as configurações.
-
-4. Instalar docker
-5. Rodar o comando docker-compose up -d no diretório "email".
