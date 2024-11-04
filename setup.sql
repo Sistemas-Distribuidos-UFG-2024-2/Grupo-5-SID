@@ -18,3 +18,15 @@ CREATE SCHEMA IF NOT EXISTS schema_auction;
 CREATE TABLE schema_auction.auctions (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY
 );
+
+-- Criação do schema leilao
+CREATE SCHEMA IF NOT EXISTS leilao_schema;
+
+-- Criação da tabela leilao
+CREATE TABLE IF NOT EXISTS leilao_schema.leilao (
+    id SERIAL PRIMARY KEY,
+    produto VARCHAR(255) NOT NULL,
+    lance_inicial DECIMAL(10, 2) NOT NULL,
+    data_finalizacao TIMESTAMP NOT NULL
+    );
+

@@ -23,7 +23,7 @@ func initDB() (*sql.DB, error) {
 	CREATE TABLE IF NOT EXISTS cliente (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		nome TEXT,
-		email TEXT
+		leilao TEXT
 	);`
 	_, err = db.Exec(query)
 	if err != nil {
