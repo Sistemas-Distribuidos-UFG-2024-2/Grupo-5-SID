@@ -11,7 +11,7 @@ import java.io.IOException;
 @Service
 public class EmailService {
 
-    private final String apiKey = "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";
+    private final String apiKey = "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";
 
     public void enviarEmailGanhador(String email, Long leilaoId) throws IOException {
         Email from = new Email("leilaosid@gmail.com");

@@ -23,7 +23,7 @@ func initDB() (*sql.DB, error) {
 	CREATE TABLE IF NOT EXISTS cliente (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		nome TEXT,
-		email TEXT
+		leilao TEXT
 	);`
 	_, err = db.Exec(query)
 	if err != nil {
@@ -47,7 +47,7 @@ func clienteHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		query := `INSERT INTO cliente (nome, email) VALUES (?, ?)`
+		query := `INSERT INTO cliente (nome, leilao) VALUES (?, ?)`
 		_, err = db.Exec(query, cliente.Nome, cliente.Email)
 		if err != nil {
 			http.Error(w, "Erro ao salvar no banco de dados", http.StatusInternalServerError)
