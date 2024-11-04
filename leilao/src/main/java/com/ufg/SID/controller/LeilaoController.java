@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Optional;
 
+// localhost:8080
 @RestController
 @RequestMapping("/auctions")
 public class LeilaoController {
