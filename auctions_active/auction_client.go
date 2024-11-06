@@ -43,7 +43,7 @@ func (c *AuctionClient) GetByID(id int64) (Auction, error) {
 		return Auction{ID: c.mockID}, nil
 	}
 
-	url := fmt.Sprintf("%s/auctionsActive/%d", c.BaseURL, id)
+	url := fmt.Sprintf("%s/auctions/%d", c.BaseURL, id)
 	resp, err := http.Get(url)
 	if err != nil {
 		return Auction{}, err

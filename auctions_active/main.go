@@ -57,6 +57,7 @@ type AuctionActive struct {
 	TimeEnd      time.Time `json:"time_end"`
 	MinimumValue float64   `json:"minimum_value"`
 	MaximumValue *float64  `json:"maximum_value,omitempty"`
+	LastValue    float64   `json:"last_value"`
 	Bids         []Bid     `json:"bids"`
 }
 
@@ -64,23 +65,49 @@ type AuctionActive struct {
 type AuctionHandler struct {
 	auctionClient *AuctionClient
 
-	auctionsActive map[int64]*AuctionActive
-	subscribers    map[int64][]*websocket.Conn // Subscrições dos WebSockets por leilão
-	mu             sync.Mutex
-	redisClient    *redis.Client // Cliente Redis
+	subscribers map[int64][]*websocket.Conn // Subscrições dos WebSockets por leilão
+	mu          sync.Mutex
+	redisClient *redis.Client // Cliente Redis
 }
 
 func NewAuctionHandler(redisClient *redis.Client, auctionClient *AuctionClient) *AuctionHandler {
 	return &AuctionHandler{
-		auctionClient:  auctionClient,
-		auctionsActive: make(map[int64]*AuctionActive),
-		subscribers:    make(map[int64][]*websocket.Conn),
-		redisClient:    redisClient,
+		auctionClient: auctionClient,
+		subscribers:   make(map[int64][]*websocket.Conn),
+		redisClient:   redisClient,
 	}
 }
 
-func (ah *AuctionHandler) AddAuction(a *AuctionActive) {
-	ah.auctionsActive[a.ID] = a
+func (ah *AuctionHandler) CreateOrUpdate(a *AuctionActive) error {
+	data, err := json.Marshal(a)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auction: %v", err)
+	}
+
+	key := fmt.Sprintf("auction:%d", a.ID)
+	err = ah.redisClient.Set(context.Background(), key, data, 0).Err()
+	if err != nil {
+		return fmt.Errorf("failed to save auction to redis: %v", err)
+	}
+
+	return nil
+}
+
+func (ah *AuctionHandler) GetAuctionActiveByID(id int64) (*AuctionActive, error) {
+	key := fmt.Sprintf("auction:%d", id)
+	data, err := ah.redisClient.Get(context.Background(), key).Result()
+	if err == redis.Nil {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get auction from redis: %v", err)
+	}
+
+	var auction AuctionActive
+	if err := json.Unmarshal([]byte(data), &auction); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal auction data: %v", err)
+	}
+
+	return &auction, nil
 }
 
 func (a *AuctionActive) isActive() bool {
@@ -95,13 +122,26 @@ func (a *AuctionActive) isValidBid(bid Bid) error {
 	if a.MaximumValue != nil && bid.Amount > *a.MaximumValue {
 		return fmt.Errorf("bid exceeds maximum allowed value")
 	}
+	if bid.Amount <= a.LastValue {
+		return fmt.Errorf("bid amount too low")
+	}
 	return nil
 }
 
-// Adiciona o lance ao leilão e notifica os clientes WebSocket
 func (ah *AuctionHandler) addBidAndNotify(auction *AuctionActive, bid Bid) {
 	bid.TS = time.Now()
-	auction.Bids = append(auction.Bids, bid)
+
+	bidData, err := json.Marshal(bid)
+	if err != nil {
+		log.Printf("failed to marshal bid: %v", err)
+		return
+	}
+	bidKey := fmt.Sprintf("auction:%d:bids", auction.ID)
+	err = ah.redisClient.RPush(context.Background(), bidKey, bidData).Err()
+	if err != nil {
+		log.Printf("failed to save bid to redis: %v", err)
+		return
+	}
 
 	bidAmountHistogram.Observe(bid.Amount)
 	totalValidBids.Inc()
@@ -147,14 +187,14 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	auction, err := ah.auctionClient.GetByID(auctionID)
+	auctionActive, err := ah.GetAuctionActiveByID(auctionID)
 	if err != nil {
-		ctx.Error("Auction not found", fasthttp.StatusNotFound)
-		return
-	}
+		auction, err := ah.auctionClient.GetByID(auctionID)
+		if err != nil {
+			ctx.Error("Auction not found", fasthttp.StatusNotFound)
+			return
+		}
 
-	auctionActive, ok := ah.auctionsActive[auctionID]
-	if !ok {
 		if !auction.isActive() {
 			ctx.Error("AuctionActive not active", fasthttp.StatusNoContent)
 			return
@@ -165,7 +205,12 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 			ctx.Error("Could not convert to active auction", fasthttp.StatusInternalServerError)
 			return
 		}
-		ah.AddAuction(auctionActive)
+
+		err = ah.CreateOrUpdate(auctionActive)
+		if err != nil {
+			ctx.Error("Could not add auction to Redis", fasthttp.StatusInternalServerError)
+			return
+		}
 	}
 
 	var bid Bid
@@ -191,8 +236,11 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	auctionActive.LastValue = bid.Amount
+
 	// Adiciona o lance e notifica os clientes conectados via WebSocket
 	ah.addBidAndNotify(auctionActive, bid)
+	ah.CreateOrUpdate(auctionActive)
 	ctx.SetStatusCode(fasthttp.StatusAccepted)
 	fmt.Fprintf(ctx, "Bid received successfully")
 }
@@ -206,10 +254,14 @@ var upgrader = websocket.FastHTTPUpgrader{
 
 func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 	auctionID, err := strconv.ParseInt(ctx.UserValue("auction_id").(string), 10, 64)
+	if err != nil {
+		ctx.Error("Invalid auction ID", fasthttp.StatusBadRequest)
+		return
+	}
 
-	auction, ok := ah.auctionsActive[auctionID]
-	if !ok {
-		ctx.Error("AuctionActive not found", fasthttp.StatusNotFound)
+	_, err = ah.GetAuctionActiveByID(auctionID)
+	if err != nil {
+		ctx.Error("Auction not found", fasthttp.StatusNotFound)
 		return
 	}
 
@@ -222,10 +274,16 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 		ah.subscribers[auctionID] = append(ah.subscribers[auctionID], conn)
 		ah.mu.Unlock()
 
-		// Envia os lances já existentes
-		for _, bid := range auction.Bids {
-			bidData, _ := json.Marshal(bid)
-			if err := conn.WriteMessage(websocket.TextMessage, bidData); err != nil {
+		// Recupera e envia os lances do Redis
+		bidKey := fmt.Sprintf("auction:%d:bids", auctionID)
+		bidData, err := ah.redisClient.LRange(context.Background(), bidKey, 0, -1).Result()
+		if err != nil {
+			log.Printf("failed to retrieve bids from redis: %v", err)
+			return
+		}
+
+		for _, bidJSON := range bidData {
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(bidJSON)); err != nil {
 				log.Printf("Error sending initial bids: %v", err)
 				return
 			}
@@ -265,4 +323,29 @@ func main() {
 	if err := fasthttp.ListenAndServe(":"+port, fastpHandler); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
+}
+
+func (ah *AuctionHandler) GetBidsByAuctionID(auctionID int64) ([]Bid, error) {
+	// Definimos a chave que armazena os lances do leilão específico
+	bidKey := fmt.Sprintf("auction:%d:bids", auctionID)
+
+	// Busca todos os lances da lista
+	bidData, err := ah.redisClient.LRange(context.Background(), bidKey, 0, -1).Result()
+	if err == redis.Nil {
+		return nil, fmt.Errorf("no bids found for auction %d", auctionID)
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to retrieve bids from redis: %v", err)
+	}
+
+	// Convertendo os dados JSON recuperados em structs Bid
+	var bids []Bid
+	for _, bidJSON := range bidData {
+		var bid Bid
+		if err := json.Unmarshal([]byte(bidJSON), &bid); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal bid data: %v", err)
+		}
+		bids = append(bids, bid)
+	}
+
+	return bids, nil
 }
