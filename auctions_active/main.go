@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,12 +20,12 @@ import (
 var (
 	totalBids = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "auction_total_bids",
-		Help: "Total number of bids placed in all auctions",
+		Help: "Total number of bids placed in all auctionsActive",
 	})
 
 	totalValidBids = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "auction_total_valid_bids",
-		Help: "Total valid number of bids placed in all auctions",
+		Help: "Total valid number of bids placed in all auctionsActive",
 	})
 
 	bidAmountHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -41,17 +42,17 @@ func init() {
 	prometheus.MustRegister(bidAmountHistogram)
 }
 
-const port = 6003
+const port = "6003"
 
-// Estruturas do Bid e Auction
+// Estruturas do Bid e AuctionActive
 type Bid struct {
 	ID     string    `json:"id"`
 	Amount float64   `json:"amount"`
 	TS     time.Time `json:"timestamp"`
 }
 
-type Auction struct {
-	ID           string    `json:"id"`
+type AuctionActive struct {
+	ID           int64     `json:"id"`
 	TimeStart    time.Time `json:"time_start"`
 	TimeEnd      time.Time `json:"time_end"`
 	MinimumValue float64   `json:"minimum_value"`
@@ -61,34 +62,33 @@ type Auction struct {
 
 // AuctionHandler gerencia a lógica do leilão e os endpoints
 type AuctionHandler struct {
-	auctions    map[string]*Auction
-	subscribers map[string][]*websocket.Conn // Subscrições dos WebSockets por leilão
-	mu          sync.Mutex
-	redisClient *redis.Client // Cliente Redis
+	auctionClient *AuctionClient
+
+	auctionsActive map[int64]*AuctionActive
+	subscribers    map[int64][]*websocket.Conn // Subscrições dos WebSockets por leilão
+	mu             sync.Mutex
+	redisClient    *redis.Client // Cliente Redis
 }
 
-// Novo AuctionHandler para inicializar os leilões
-func NewAuctionHandler(redisClient *redis.Client) *AuctionHandler {
+func NewAuctionHandler(redisClient *redis.Client, auctionClient *AuctionClient) *AuctionHandler {
 	return &AuctionHandler{
-		auctions:    make(map[string]*Auction),
-		subscribers: make(map[string][]*websocket.Conn),
-		redisClient: redisClient,
+		auctionClient:  auctionClient,
+		auctionsActive: make(map[int64]*AuctionActive),
+		subscribers:    make(map[int64][]*websocket.Conn),
+		redisClient:    redisClient,
 	}
 }
 
-// Adiciona um leilão ao mapa de leilões
-func (ah *AuctionHandler) AddAuction(a *Auction) {
-	ah.auctions[a.ID] = a
+func (ah *AuctionHandler) AddAuction(a *AuctionActive) {
+	ah.auctionsActive[a.ID] = a
 }
 
-// Valida se o leilão está ativo no momento
-func (a *Auction) isAuctionActive() bool {
+func (a *AuctionActive) isActive() bool {
 	now := time.Now()
 	return now.After(a.TimeStart) && now.Before(a.TimeEnd)
 }
 
-// Valida um lance baseado nas regras do leilão
-func (a *Auction) isValidBid(bid Bid) error {
+func (a *AuctionActive) isValidBid(bid Bid) error {
 	if bid.Amount < a.MinimumValue {
 		return fmt.Errorf("bid amount too low")
 	}
@@ -99,7 +99,7 @@ func (a *Auction) isValidBid(bid Bid) error {
 }
 
 // Adiciona o lance ao leilão e notifica os clientes WebSocket
-func (ah *AuctionHandler) addBidAndNotify(auction *Auction, bid Bid) {
+func (ah *AuctionHandler) addBidAndNotify(auction *AuctionActive, bid Bid) {
 	bid.TS = time.Now()
 	auction.Bids = append(auction.Bids, bid)
 
@@ -111,7 +111,7 @@ func (ah *AuctionHandler) addBidAndNotify(auction *Auction, bid Bid) {
 }
 
 // Notifica os subscritores WebSocket de novos lances
-func (ah *AuctionHandler) notifySubscribers(auctionID string, bid Bid) {
+func (ah *AuctionHandler) notifySubscribers(auctionID int64, bid Bid) {
 	ah.mu.Lock()
 	defer ah.mu.Unlock()
 
@@ -125,14 +125,14 @@ func (ah *AuctionHandler) notifySubscribers(auctionID string, bid Bid) {
 	}
 }
 
-func (ah *AuctionHandler) acquireLock(ctx context.Context, auctionID string) (bool, error) {
-	lockKey := fmt.Sprintf("auction_lock:%s", auctionID)
+func (ah *AuctionHandler) acquireLock(ctx context.Context, auctionID int64) (bool, error) {
+	lockKey := fmt.Sprintf("auction_lock:%d", auctionID)
 	success, err := ah.redisClient.SetNX(ctx, lockKey, 1, 10*time.Second).Result() // Expira em 10 segundos
 	return success, err
 }
 
-func (ah *AuctionHandler) releaseLock(ctx context.Context, auctionID string) error {
-	lockKey := fmt.Sprintf("auction_lock:%s", auctionID)
+func (ah *AuctionHandler) releaseLock(ctx context.Context, auctionID int64) error {
+	lockKey := fmt.Sprintf("auction_lock:%d", auctionID)
 	_, err := ah.redisClient.Del(ctx, lockKey).Result()
 	return err
 }
@@ -141,12 +141,31 @@ func (ah *AuctionHandler) releaseLock(ctx context.Context, auctionID string) err
 func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 	totalBids.Inc()
 
-	auctionID := ctx.UserValue("auction_id").(string)
+	auctionID, err := strconv.ParseInt(ctx.UserValue("auction_id").(string), 10, 64)
+	if err != nil {
+		ctx.Error("Invalid bid format", fasthttp.StatusBadRequest)
+		return
+	}
 
-	auction, ok := ah.auctions[auctionID]
-	if !ok {
+	auction, err := ah.auctionClient.GetByID(auctionID)
+	if err != nil {
 		ctx.Error("Auction not found", fasthttp.StatusNotFound)
 		return
+	}
+
+	auctionActive, ok := ah.auctionsActive[auctionID]
+	if !ok {
+		if !auction.isActive() {
+			ctx.Error("AuctionActive not active", fasthttp.StatusNoContent)
+			return
+		}
+
+		auctionActive, err = auction.convertToActive()
+		if err != nil {
+			ctx.Error("Could not convert to active auction", fasthttp.StatusInternalServerError)
+			return
+		}
+		ah.AddAuction(auctionActive)
 	}
 
 	var bid Bid
@@ -155,7 +174,6 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Adquire lock no Redis
 	ctxRedis := context.Background()
 	if acquired, err := ah.acquireLock(ctxRedis, auctionID); !acquired || err != nil {
 		ctx.Error("Could not acquire lock", fasthttp.StatusInternalServerError)
@@ -163,19 +181,18 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 	}
 	defer ah.releaseLock(ctxRedis, auctionID) // Libera o lock no final
 
-	// Validações
-	if !auction.isAuctionActive() {
-		ctx.Error("Auction is not active", fasthttp.StatusForbidden)
+	if !auctionActive.isActive() {
+		ctx.Error("AuctionActive is not active", fasthttp.StatusForbidden)
 		return
 	}
 
-	if err := auction.isValidBid(bid); err != nil {
+	if err := auctionActive.isValidBid(bid); err != nil {
 		ctx.Error(err.Error(), fasthttp.StatusForbidden)
 		return
 	}
 
 	// Adiciona o lance e notifica os clientes conectados via WebSocket
-	ah.addBidAndNotify(auction, bid)
+	ah.addBidAndNotify(auctionActive, bid)
 	ctx.SetStatusCode(fasthttp.StatusAccepted)
 	fmt.Fprintf(ctx, "Bid received successfully")
 }
@@ -188,16 +205,16 @@ var upgrader = websocket.FastHTTPUpgrader{
 }
 
 func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
-	auctionID := ctx.UserValue("auction_id").(string)
+	auctionID, err := strconv.ParseInt(ctx.UserValue("auction_id").(string), 10, 64)
 
-	auction, ok := ah.auctions[auctionID]
+	auction, ok := ah.auctionsActive[auctionID]
 	if !ok {
-		ctx.Error("Auction not found", fasthttp.StatusNotFound)
+		ctx.Error("AuctionActive not found", fasthttp.StatusNotFound)
 		return
 	}
 
 	// Estabelece a conexão WebSocket
-	err := upgrader.Upgrade(ctx, func(conn *websocket.Conn) {
+	err = upgrader.Upgrade(ctx, func(conn *websocket.Conn) {
 		defer conn.Close()
 
 		// Adiciona o WebSocket aos subscritores
@@ -232,18 +249,8 @@ func main() {
 		Addr: "localhost:6379", // Endereço do servidor Redis
 	})
 
-	auctionHandler := NewAuctionHandler(redisClient)
-
-	// Exemplo de leilão ativo por 5 minutos
-	auctionID := "auction1"
-	auctionHandler.AddAuction(&Auction{
-		ID:           auctionID,
-		TimeStart:    time.Now(),
-		TimeEnd:      time.Now().Add(10 * time.Minute),
-		MinimumValue: 10.0,
-		MaximumValue: nil,
-		Bids:         []Bid{},
-	})
+	client := &AuctionClient{"http://localhost:8080/", 1}
+	auctionHandler := NewAuctionHandler(redisClient, client)
 
 	// Configura o roteador
 	r := router.New()
@@ -254,8 +261,8 @@ func main() {
 	fastpHandler := p.WrapHandler(r)
 
 	// Inicializa o servidor
-	fmt.Println("Auction active server is running on port 6003...")
-	if err := fasthttp.ListenAndServe(":6003", fastpHandler); err != nil {
+	fmt.Println("Auction active server is running on port " + port)
+	if err := fasthttp.ListenAndServe(":"+port, fastpHandler); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 }
