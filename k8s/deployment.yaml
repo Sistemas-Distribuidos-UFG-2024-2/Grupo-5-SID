@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auction-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auction-app
+  template:
+    metadata:
+      labels:
+        app: auction-app
+    spec:
+      containers:
+      - name: auction-app
+        image: auction-app:latest # Altere para a imagem criada pelo Docker
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 6003
+        env:
+        - name: REDIS_HOST
+          value: "redis-service" # Nome do serviço do Redis
+        - name: REDIS_PORT
+          value: "6379"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:6.2-alpine
+        ports:
+        - containerPort: 6379

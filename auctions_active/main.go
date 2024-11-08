@@ -302,9 +302,13 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 	}
 }
 
+// K8s: redis-service
+// Local: localhost
+var redisBaseURL = "redis-service"
+
 func main() {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379", // Endereço do servidor Redis
+		Addr: "redis-service:6379", // Endereço do servidor Redis
 	})
 
 	client := &AuctionClient{"http://localhost:8080/", 1}
