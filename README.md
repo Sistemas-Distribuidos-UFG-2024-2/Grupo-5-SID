@@ -5,7 +5,7 @@
 
 ## Link Pitch
 
-[Link do Pitch da Apresentação](https://docs.google.com/presentation/d/1eK21P_mmpFl_WHYtD-Mm9hy7vjfw-AyXXOsiqwvpQU8/edit#slide=id.g3045f246402_0_7)
+[Link Apresentação 08/11](https://docs.google.com/presentation/d/1eK21P_mmpFl_WHYtD-Mm9hy7vjfw-AyXXOsiqwvpQU8/edit#slide=id.g3045f246402_0_7)
 
 ### Integrantes
 
