@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -42,13 +43,12 @@ func init() {
 	prometheus.MustRegister(bidAmountHistogram)
 }
 
-const port = "6003"
-
 // Estruturas do Bid e AuctionActive
 type Bid struct {
-	ID     string    `json:"id"`
-	Amount float64   `json:"amount"`
-	TS     time.Time `json:"timestamp"`
+	ID           string    `json:"id"`
+	AccountEmail string    `json:"account_email"`
+	Amount       float64   `json:"amount"`
+	TS           time.Time `json:"timestamp"`
 }
 
 type AuctionActive struct {
@@ -65,16 +65,18 @@ type AuctionActive struct {
 type AuctionHandler struct {
 	auctionClient *AuctionClient
 
-	subscribers map[int64][]*websocket.Conn // Subscrições dos WebSockets por leilão
-	mu          sync.Mutex
-	redisClient *redis.Client // Cliente Redis
+	subscribers    map[int64][]*websocket.Conn // Subscrições dos WebSockets por leilão
+	activeChannels map[int64]chan struct{}     // Canais ativos para escuta do Redis
+	mu             sync.Mutex
+	redisClient    *redis.Client // Cliente Redis
 }
 
 func NewAuctionHandler(redisClient *redis.Client, auctionClient *AuctionClient) *AuctionHandler {
 	return &AuctionHandler{
-		auctionClient: auctionClient,
-		subscribers:   make(map[int64][]*websocket.Conn),
-		redisClient:   redisClient,
+		auctionClient:  auctionClient,
+		subscribers:    make(map[int64][]*websocket.Conn),
+		activeChannels: make(map[int64]chan struct{}),
+		redisClient:    redisClient,
 	}
 }
 
@@ -146,8 +148,14 @@ func (ah *AuctionHandler) addBidAndNotify(auction *AuctionActive, bid Bid) {
 	bidAmountHistogram.Observe(bid.Amount)
 	totalValidBids.Inc()
 
+	channel := fmt.Sprintf("auction:%d:channel", auction.ID)
+	if err := ah.redisClient.Publish(context.Background(), channel, bidData).Err(); err != nil {
+		log.Print("Could not publish bid")
+		return
+	}
+
 	// Notificar os clientes WebSocket conectados
-	ah.notifySubscribers(auction.ID, bid)
+	// ah.notifySubscribers(auction.ID, bid)
 }
 
 // Notifica os subscritores WebSocket de novos lances
@@ -257,6 +265,57 @@ var upgrader = websocket.FastHTTPUpgrader{
 	},
 }
 
+func (ah *AuctionHandler) subscribeToRedis(auctionID int64) {
+	if _, exists := ah.activeChannels[auctionID]; exists {
+		return
+	}
+
+	stopChan := make(chan struct{})
+	ah.activeChannels[auctionID] = stopChan
+
+	go func() {
+		ctx := context.Background()
+		channel := fmt.Sprintf("auction:%d:channel", auctionID)
+		pubsub := ah.redisClient.Subscribe(ctx, channel)
+		if _, err := pubsub.Receive(ctx); err != nil {
+			log.Printf("Error subscribing to Redis channel: %v", err)
+			return
+		}
+
+		log.Printf("Subscribed to Redis channel: %s", channel)
+
+		defer pubsub.Close()
+
+		for msg := range pubsub.Channel() {
+			log.Printf("Message received on channel %s: %s", channel, msg.Payload)
+
+			var bid Bid
+			if err := json.Unmarshal([]byte(msg.Payload), &bid); err != nil {
+				log.Printf("failed to unmarshal bid message: %v", err)
+				continue
+			}
+
+			conns := ah.subscribers[auctionID]
+
+			for _, conn := range conns {
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(msg.Payload)); err != nil {
+					log.Printf("Error sending bid to subscriber: %v", err)
+					conn.Close() // Fechar a conexão com erro
+				}
+			}
+		}
+	}()
+}
+
+func (ah *AuctionHandler) stopRedisSubscription(auctionID int64) {
+	ah.mu.Lock()
+	if stopChan, exists := ah.activeChannels[auctionID]; exists {
+		close(stopChan)
+		delete(ah.activeChannels, auctionID)
+	}
+	ah.mu.Unlock()
+}
+
 func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 	auctionID, err := strconv.ParseInt(ctx.UserValue("auction_id").(string), 10, 64)
 	if err != nil {
@@ -277,6 +336,9 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 		// Adiciona o WebSocket aos subscritores
 		ah.mu.Lock()
 		ah.subscribers[auctionID] = append(ah.subscribers[auctionID], conn)
+		if len(ah.subscribers[auctionID]) == 1 {
+			ah.subscribeToRedis(auctionID) // Inicia a escuta Redis se for o primeiro cliente
+		}
 		ah.mu.Unlock()
 
 		// Recupera e envia os lances do Redis
@@ -301,6 +363,18 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 				break
 			}
 		}
+
+		ah.mu.Lock()
+		for i, subscriber := range ah.subscribers[auctionID] {
+			if subscriber == conn {
+				ah.subscribers[auctionID] = append(ah.subscribers[auctionID][:i], ah.subscribers[auctionID][i+1:]...)
+				break
+			}
+		}
+		if len(ah.subscribers[auctionID]) == 0 {
+			ah.stopRedisSubscription(auctionID) // Para a escuta Redis se não houver mais clientes
+		}
+		ah.mu.Unlock()
 	})
 	if err != nil {
 		log.Printf("Failed to establish WebSocket connection: %v", err)
@@ -309,14 +383,32 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 
 // K8s: redis-service
 // Local: localhost
-var redisBaseURL = "redis-service"
+var redisBaseURL = "localhost"
+
+// Vou rodar no K8S ?
+const K8S = false
 
 func main() {
+	var (
+		redisBaseURL         = "localhost"
+		auctionClientBaseURL = "localhost"
+	)
+
+	if K8S {
+		redisBaseURL = "redis-service"
+		auctionClientBaseURL = "auction-service"
+	}
+
+	port := "6003"
+	if len(os.Args) == 2 {
+		port = os.Args[1]
+	}
+
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: "redis-service:6379", // Endereço do servidor Redis
+		Addr: redisBaseURL + ":6379", // Endereço do servidor Redis
 	})
 
-	client := &AuctionClient{"http://localhost:8080/", 1}
+	client := &AuctionClient{auctionClientBaseURL, 1}
 	auctionHandler := NewAuctionHandler(redisClient, client)
 
 	// Configura o roteador
