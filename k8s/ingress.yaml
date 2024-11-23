@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auction-app-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /auctions
+            pathType: Prefix
+            backend:
+              service:
+                name: auction-service
+                port:
+                  number: 6003

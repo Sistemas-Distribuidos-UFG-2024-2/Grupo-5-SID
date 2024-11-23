@@ -40,7 +40,7 @@ func NewAuctionClient(baseURL string) *AuctionClient {
 
 func (c *AuctionClient) GetByID(id int64) (Auction, error) {
 	if c.mockID != 0 {
-		return Auction{ID: c.mockID}, nil
+		return Auction{ID: id}, nil
 	}
 
 	url := fmt.Sprintf("%s/auctions/%d", c.BaseURL, id)

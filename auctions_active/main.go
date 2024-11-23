@@ -189,6 +189,8 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 
 	auctionActive, err := ah.GetAuctionActiveByID(auctionID)
 	if err != nil {
+		println("error to get auction active by id:", err.Error())
+
 		auction, err := ah.auctionClient.GetByID(auctionID)
 		if err != nil {
 			ctx.Error("Auction not found", fasthttp.StatusNotFound)
@@ -232,17 +234,20 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 	}
 
 	if err := auctionActive.isValidBid(bid); err != nil {
-		ctx.Error(err.Error(), fasthttp.StatusForbidden)
+		ctx.Error(err.Error(), fasthttp.StatusAccepted)
 		return
 	}
 
 	auctionActive.LastValue = bid.Amount
+	fmt.Println(fmt.Sprintf("Updating the last value to %f on auction %d", auctionActive.LastValue, auctionActive.ID))
 
 	// Adiciona o lance e notifica os clientes conectados via WebSocket
 	ah.addBidAndNotify(auctionActive, bid)
-	ah.CreateOrUpdate(auctionActive)
+	if err := ah.CreateOrUpdate(auctionActive); err != nil {
+		fmt.Println("Error updating auction:", err)
+	}
 	ctx.SetStatusCode(fasthttp.StatusAccepted)
-	fmt.Fprintf(ctx, "Bid received successfully")
+	fmt.Fprintf(ctx, fmt.Sprintf("Bid accepted: %v", bid))
 }
 
 // WebSocket para listar lances em tempo real
