@@ -3,7 +3,10 @@ package com.ufg.SID.model;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Entity
@@ -15,12 +18,51 @@ public class Leilao {
 
     private String produto;
     private BigDecimal lanceInicial;
-    private LocalDate dataFinalizacao;
+    private LocalDateTime dataFinalizacao;
     private boolean finalizado = false;
+    private String criador;
+    private String vencedor;
+    private BigDecimal lanceFinal;
+    private BigDecimal valorMaximo;
 
-    // Conjunto de IDs dos usuários participantes do leilão
     @ElementCollection
-    private Set<Long> participantes = new HashSet<>();
+    @CollectionTable(
+            name = "participantes",
+            joinColumns = @JoinColumn(name = "leilao_id")
+    )
+    private List<Lance> participantes = new ArrayList<>();
+
+    public String getCriador() {
+        return criador;
+    }
+
+    public void setCriador(String criador) {
+        this.criador = criador;
+    }
+
+    public String getVencedor() {
+        return vencedor;
+    }
+
+    public void setVencedor(String vencedor) {
+        this.vencedor = vencedor;
+    }
+
+    public BigDecimal getLanceFinal() {
+        return lanceFinal;
+    }
+
+    public void setLanceFinal(BigDecimal lanceFinal) {
+        this.lanceFinal = lanceFinal;
+    }
+
+    public BigDecimal getValorMaximo() {
+        return valorMaximo;
+    }
+
+    public void setValorMaximo(BigDecimal valorMaximo) {
+        this.valorMaximo = valorMaximo;
+    }
 
     // Getters e Setters
     public Long getId() {
@@ -47,11 +89,11 @@ public class Leilao {
         this.lanceInicial = lanceInicial;
     }
 
-    public LocalDate getDataFinalizacao() {
+    public LocalDateTime getDataFinalizacao() {
         return dataFinalizacao;
     }
 
-    public void setDataFinalizacao(LocalDate dataFinalizacao) {
+    public void setDataFinalizacao(LocalDateTime dataFinalizacao) {
         this.dataFinalizacao = dataFinalizacao;
     }
 
@@ -63,11 +105,11 @@ public class Leilao {
         this.finalizado = finalizado;
     }
 
-    public Set<Long> getParticipantes() {
+    public List<Lance> getParticipantes() {
         return participantes;
     }
 
-    public void setParticipantes(Set<Long> participantes) {
+    public void setParticipantes(List<Lance> participantes) {
         this.participantes = participantes;
     }
 }

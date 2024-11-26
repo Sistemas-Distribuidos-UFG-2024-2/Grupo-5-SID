@@ -26,7 +26,20 @@ CREATE SCHEMA IF NOT EXISTS leilao_schema;
 CREATE TABLE IF NOT EXISTS leilao_schema.leilao (
     id SERIAL PRIMARY KEY,
     produto VARCHAR(255) NOT NULL,
-    lance_inicial DECIMAL(10, 2) NOT NULL,
-    data_finalizacao TIMESTAMP NOT NULL
-    );
+    lance_inicial DECIMAL(10, 2) NULL,
+    data_finalizacao TIMESTAMP NOT NULL,
+    criador VARCHAR(50) NOT NULL,
+    vencedor VARCHAR(50) NULL,
+    lance_final DECIMAL(10, 2) NULL,
+    valor_maximo DECIMAL(10, 2) NULL
+);
+
+-- Criação da tabela participantes
+CREATE TABLE IF NOT EXISTS leilao_schema.participantes (
+    leilao_id BIGINT NOT NULL,
+    usuario_email VARCHAR(50) NOT NULL,
+    lance DECIMAL(10, 2) NOT NULL,
+    PRIMARY KEY (leilao_id, usuario_email),
+    FOREIGN KEY (leilao_id) REFERENCES leilao_schema.leilao (id) ON DELETE CASCADE
+);
 
