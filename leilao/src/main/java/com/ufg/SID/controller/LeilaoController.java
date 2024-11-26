@@ -1,5 +1,6 @@
 package com.ufg.SID.controller;
 
+import com.ufg.SID.model.Lance;
 import com.ufg.SID.model.Leilao;
 import com.ufg.SID.model.LeilaoMensagem;
 import com.ufg.SID.service.LeilaoService;
@@ -7,6 +8,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,8 +37,8 @@ public class LeilaoController {
 
     // Inscrever no leilão (POST)
     @PostMapping("/{leilaoId}/inscrever")
-    public Leilao inscreverNoLeilao(@PathVariable Long leilaoId, @RequestParam Long usuarioId) {
-        return leilaoService.inscreverNoLeilao(leilaoId, usuarioId);
+    public Leilao inscreverNoLeilao(@PathVariable Long leilaoId, @RequestBody Lance lance) {
+        return leilaoService.inscreverNoLeilao(leilaoId, lance);
     }
 
     // Ver leilão específico (GET)
@@ -53,8 +55,8 @@ public class LeilaoController {
 
     // Ver leilões que o usuário participa (GET)
     @GetMapping("/participados")
-    public List<Leilao> verLeiloesParticipados(@RequestParam Long usuarioId) {
-        return leilaoService.verLeiloesParticipados(usuarioId);
+    public List<Leilao> verLeiloesParticipados(@RequestParam String usuarioEmail) {
+        return leilaoService.verLeiloesParticipados(usuarioEmail);
     }
 
     // Finalizar leilão (PUT)
