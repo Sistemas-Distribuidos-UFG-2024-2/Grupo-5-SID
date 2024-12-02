@@ -5,15 +5,15 @@ import java.io.Serializable;
 public class LeilaoMensagem implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    private Long leilaoId;
+    private String leilaoProduto;
     private String email;
 
-    public Long getLeilaoId() {
-        return leilaoId;
+    public String getLeilaoProduto() {
+        return leilaoProduto;
     }
 
-    public void setLeilaoId(Long leilaoId) {
-        this.leilaoId = leilaoId;
+    public void setLeilaoProduto(String leilaoProduto) {
+        this.leilaoProduto = leilaoProduto;
     }
 
     public String getEmail() {

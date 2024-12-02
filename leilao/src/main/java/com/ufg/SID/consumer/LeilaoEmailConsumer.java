@@ -17,7 +17,7 @@ public class LeilaoEmailConsumer {
     @RabbitListener(queues = "leilaoQueue")
     public void receberMensagem(LeilaoMensagem mensagem, Channel channel, Message message) {
         try {
-            emailService.enviarEmailGanhador(mensagem.getEmail(), mensagem.getLeilaoId());
+            emailService.enviarEmailGanhador(mensagem.getEmail(), mensagem.getLeilaoProduto());
 
             // Checa se rabbitmq retorna ack (MENSAGEM ENTREGUE COM SUCESSO)
             channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);

@@ -11,13 +11,13 @@ import java.io.IOException;
 @Service
 public class EmailService {
 
-    private final String apiKey = "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";
+    private final String apiKey = "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";
 
-    public void enviarEmailGanhador(String email, Long leilaoId) throws IOException {
+    public void enviarEmailGanhador(String email, String leilaoProduto) throws IOException {
         Email from = new Email("leilaosid@gmail.com");
         String subject = "Parabéns! Você foi o ganhador!";
         Email to = new Email(email);
-        Content content = new Content("text/plain", "Parabéns! Você foi o ganhador do leilão com id: " + leilaoId);
+        Content content = new Content("text/plain", "Parabéns! Você foi o ganhador do leilão do produto: " + leilaoProduto);
         Mail mail = new Mail(from, subject, to, content);
 
         SendGrid sg = new SendGrid(apiKey);
