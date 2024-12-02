@@ -53,6 +53,8 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: leilaosiddocker
       RABBITMQ_DEFAULT_PASS: leilaosiddocker123
+    networks:
+      - my_network
 
   springboot-app:
     build:
@@ -66,6 +68,13 @@ services:
       - rabbitmq
     networks:
       - my_network
+    entrypoint: |
+      sh -c "
+        until nc -z rabbitmq 5672; do
+          echo 'Aguardando RabbitMQ...';
+          sleep 5;
+        done;
+        java -jar app.jar"
 
 networks:
   my_network:
