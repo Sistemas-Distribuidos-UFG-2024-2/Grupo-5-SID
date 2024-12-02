@@ -54,6 +54,19 @@ services:
       RABBITMQ_DEFAULT_USER: leilaosiddocker
       RABBITMQ_DEFAULT_PASS: leilaosiddocker123
 
+  springboot-app:
+    build:
+      context: .
+      dockerfile: leilao/Dockerfile
+    container_name: springboot_container
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+      - rabbitmq
+    networks:
+      - my_network
+
 networks:
   my_network:
     driver: bridge

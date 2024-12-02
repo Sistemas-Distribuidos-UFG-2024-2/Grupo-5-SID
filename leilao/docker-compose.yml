@@ -1,9 +1,0 @@
-services:
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: leilaosiddocker
-      RABBITMQ_DEFAULT_PASS: leilaosiddocker123
