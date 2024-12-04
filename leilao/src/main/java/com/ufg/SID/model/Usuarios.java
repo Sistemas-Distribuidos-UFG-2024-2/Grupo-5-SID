@@ -1,42 +1,44 @@
 package com.ufg.SID.model;
+
 import jakarta.persistence.*;
+import java.util.UUID;
 
 @Entity
+@Table(name = "accounts", schema = "schema_accounts") // Tabela e schema correspondentes
 public class Usuarios {
 
-        @Id
-        @GeneratedValue(strategy = GenerationType.IDENTITY)
-        private Long cod;
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO) // Geração automática para UUID
+    private UUID id; // Alinhado ao campo 'id' do banco
 
-        private String nome;
-        private String email;
-        private String senha;
+    @Column(name = "mail", nullable = false, unique = true) // Alinhado ao campo 'mail' do banco
+    private String mail;
 
+    @Column(name = "enabled", nullable = false) // Representa o campo 'enabled' do banco
+    private Boolean enabled;
 
-        public String getSenha() {
-                return senha;
-        }
-        public void setSenha(String senha) {
-                this.senha = senha;
-        }
-        public String getEmail() {
-                return email;
-        }
-        public void setEmail(String email) {
-                this.email = email;
-        }
-        public Long getCod() {
-                return cod;
-        }
-        public void setCod(Long cod) {
-                this.cod = cod;
-        }
-        public String getNome() {
-                return nome;
-        }
-        public void setNome(String nome) {
-                this.nome = nome;
-        }
-        
+    // Getters e Setters
+    public UUID getId() {
+        return id;
+    }
 
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
+    public String getMail() {
+        return mail;
+    }
+
+    public void setMail(String mail) {
+        this.mail = mail;
+    }
+
+    public Boolean getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
+    }
 }

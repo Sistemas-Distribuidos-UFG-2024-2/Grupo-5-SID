@@ -42,11 +42,3 @@ CREATE TABLE IF NOT EXISTS leilao_schema.participantes (
     PRIMARY KEY (leilao_id, usuario_email),
     FOREIGN KEY (leilao_id) REFERENCES leilao_schema.leilao (id) ON DELETE CASCADE
 );
-
--- Criação da tabela usuarios
-CREATE TABLE usuarios (
-    cod SERIAL PRIMARY KEY,
-    nome VARCHAR(100) NOT NULL,
-    email VARCHAR(150) UNIQUE NOT NULL,
-    senha VARCHAR(255) NOT NULL
-);
