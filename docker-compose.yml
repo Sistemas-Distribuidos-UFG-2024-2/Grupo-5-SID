@@ -68,7 +68,7 @@ services:
       - rabbitmq
     networks:
       - my_network
-    platform: linux/amd64
+    #platform: linux/amd64
     entrypoint: |
       sh -c "
         until nc -z rabbitmq 5672; do
