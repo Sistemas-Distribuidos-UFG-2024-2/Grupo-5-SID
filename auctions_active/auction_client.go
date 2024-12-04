@@ -14,7 +14,13 @@ type AuctionClient struct {
 }
 
 type Auction struct {
-	ID int64 `json:"id"`
+	ID              int64   `json:"id"`
+	Produto         string  `json:"produto"`
+	LanceInicial    float64 `json:"lanceInicial"`
+	DataFinalizacao string  `json:"dataFinalizacao"`
+	Criador         string  `json:"criador"`
+	Vencedor        string  `json:"vencedor"`
+	ValorMaximo     float64 `json:"valorMaximo"`
 }
 
 func (a Auction) isActive() bool {
@@ -22,26 +28,37 @@ func (a Auction) isActive() bool {
 }
 
 func (a Auction) convertToActive() (*AuctionActive, error) {
-	// if not active returns error
+	timeEnd, err := parseISO8601(a.DataFinalizacao)
+	if err != nil {
+		return nil, err
+	}
+	var valorMaximo float64
+	if a.ValorMaximo != 0 {
+		valorMaximo = a.ValorMaximo
+	}
 
 	return &AuctionActive{
 		ID:           a.ID,
 		TimeStart:    time.Now(),
-		TimeEnd:      time.Now().Add(10 * time.Minute),
-		MinimumValue: 10.0,
-		MaximumValue: nil,
+		TimeEnd:      timeEnd,
+		MinimumValue: a.LanceInicial,
+		MaximumValue: &valorMaximo,
 		Bids:         []Bid{},
 	}, nil
 }
 
-func NewAuctionClient(baseURL string) *AuctionClient {
-	return &AuctionClient{BaseURL: baseURL}
-}
-
 func (c *AuctionClient) GetByID(id int64) (Auction, error) {
-	if c.mockID != 0 {
-		return Auction{ID: id}, nil
-	}
+	//if c.mockID != 0 {
+	//	return Auction{
+	//		ID:              id,
+	//		Produto:         "Produto Exemplo",
+	//		LanceInicial:    50.00,
+	//		DataFinalizacao: "2024-12-31T23:59:59",
+	//		Criador:         "roberta",
+	//		Vencedor:        "",
+	//		ValorMaximo:     0,
+	//	}, nil
+	//}
 
 	url := fmt.Sprintf("%s/auctions/%d", c.BaseURL, id)
 	resp, err := http.Get(url)
@@ -60,4 +77,14 @@ func (c *AuctionClient) GetByID(id int64) (Auction, error) {
 	}
 
 	return auction, nil
+}
+
+func parseISO8601(input string) (time.Time, error) {
+	const layout = "2006-01-02T15:04:05"
+	parsedTime, err := time.Parse(layout, input)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return parsedTime, nil
 }

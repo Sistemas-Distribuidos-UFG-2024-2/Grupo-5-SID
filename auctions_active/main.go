@@ -212,13 +212,13 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 
 		auctionActive, err = auction.convertToActive()
 		if err != nil {
-			ctx.Error("Could not convert to active auction", fasthttp.StatusInternalServerError)
+			ctx.Error("Could not convert to active auction:"+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
 
 		err = ah.CreateOrUpdate(auctionActive)
 		if err != nil {
-			ctx.Error("Could not add auction to Redis", fasthttp.StatusInternalServerError)
+			ctx.Error("Could not add auction to Redis:"+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
 	}
@@ -390,22 +390,30 @@ const K8S = false
 
 func main() {
 	var (
-		redisBaseURL         = "localhost"
-		auctionClientBaseURL = "localhost"
+		redisBaseURL         = "localhost:6379"
+		auctionClientBaseURL = "http://localhost:8080"
 	)
 
 	if K8S {
-		redisBaseURL = "redis-service"
+		redisBaseURL = "redis-service:6379"
 		auctionClientBaseURL = "auction-service"
 	}
 
 	port := "6003"
-	if len(os.Args) == 2 {
+	if len(os.Args) > 1 {
 		port = os.Args[1]
+	}
+	if len(os.Args) > 2 {
+		arg := os.Args[2]
+		if arg == "compose" {
+			println("COMPOSE")
+			auctionClientBaseURL = "http://springboot-app:8080"
+			redisBaseURL = "redis:6379"
+		}
 	}
 
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: redisBaseURL + ":6379", // Endereço do servidor Redis
+		Addr: redisBaseURL, // Endereço do servidor Redis
 	})
 
 	client := &AuctionClient{auctionClientBaseURL, 1}
@@ -419,9 +427,14 @@ func main() {
 	p := fastp.NewPrometheus("fasthttp")
 	fastpHandler := p.WrapHandler(r)
 
+	handlerWithCors := func(ctx *fasthttp.RequestCtx) {
+		corsMiddleware(ctx)
+		fastpHandler(ctx)
+	}
+
 	// Inicializa o servidor
 	fmt.Println("Auction active server is running on port " + port)
-	if err := fasthttp.ListenAndServe(":"+port, fastpHandler); err != nil {
+	if err := fasthttp.ListenAndServe(":"+port, handlerWithCors); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 }
@@ -449,4 +462,19 @@ func (ah *AuctionHandler) GetBidsByAuctionID(auctionID int64) ([]Bid, error) {
 	}
 
 	return bids, nil
+}
+
+func corsMiddleware(ctx *fasthttp.RequestCtx) {
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")                                // Permite todas as origens
+	ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS") // Métodos permitidos
+	ctx.Response.Header.Set("Access-Control-Allow-Headers", "*")                               // Permite todos os cabeçalhos
+	ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")                        // Permite cookies/credenciais
+
+	// Se for uma requisição OPTIONS, apenas responde com os cabeçalhos e finaliza a requisição
+	if string(ctx.Method()) == "OPTIONS" {
+		ctx.SetStatusCode(fasthttp.StatusNoContent) // Responde sem conteúdo (204)
+		return
+	}
+
+	// Continuar para o próximo handler
 }

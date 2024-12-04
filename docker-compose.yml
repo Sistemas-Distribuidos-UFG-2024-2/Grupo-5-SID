@@ -68,6 +68,7 @@ services:
       - rabbitmq
     networks:
       - my_network
+    platform: linux/amd64
     entrypoint: |
       sh -c "
         until nc -z rabbitmq 5672; do
@@ -76,6 +77,18 @@ services:
         done;
         java -jar app.jar"
 
+
+  auction-app:
+    build:
+      context: .
+      dockerfile: auctions_active/Dockerfile_compose
+    container_name: auction_app_container
+    ports:
+      - "6003:6003"
+    networks:
+      - my_network
+    depends_on:
+      - redis
 networks:
   my_network:
     driver: bridge
