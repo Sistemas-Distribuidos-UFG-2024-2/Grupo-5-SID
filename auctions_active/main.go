@@ -201,7 +201,7 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 
 		auction, err := ah.auctionClient.GetByID(auctionID)
 		if err != nil {
-			ctx.Error("Auction not found", fasthttp.StatusNotFound)
+			ctx.Error("Auction not found: "+err.Error(), fasthttp.StatusNotFound)
 			return
 		}
 
@@ -381,12 +381,8 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-// K8s: redis-service
-// Local: localhost
-var redisBaseURL = "localhost"
-
 // Vou rodar no K8S ?
-const K8S = false
+const K8S = true
 
 func main() {
 	var (
@@ -396,7 +392,8 @@ func main() {
 
 	if K8S {
 		redisBaseURL = "redis-service:6379"
-		auctionClientBaseURL = "auction-service"
+		// auctionClientBaseURL = "http://local-service:8080"
+		auctionClientBaseURL = "http://host.docker.internal:8080"
 	}
 
 	port := "6003"

@@ -76,6 +76,8 @@ func (c *AuctionClient) GetByID(id int64) (Auction, error) {
 		return Auction{}, err
 	}
 
+	fmt.Printf("Auction found: %d, minimum value:%f\n", auction.ID, auction.LanceInicial)
+
 	return auction, nil
 }
 

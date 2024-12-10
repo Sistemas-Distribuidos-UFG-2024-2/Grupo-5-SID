@@ -17,4 +17,4 @@ WORKDIR /root/
 COPY --from=builder /app/main .
 EXPOSE 6003
 
-CMD ["./main"]
+CMD ["./main", "6003", "k8s"]
