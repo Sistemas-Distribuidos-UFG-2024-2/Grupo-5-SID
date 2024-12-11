@@ -16,8 +16,11 @@ class LeilaoController extends GetxController {
   final TextEditingController dataController = TextEditingController();
   final TextEditingController valorMaximo = TextEditingController();
 
+  final TextEditingController lanceController = TextEditingController();
+
   var leiloes = List<Auctions>.empty().obs;
   var leilaoSelecionado = Auctions().obs;
+  var isEmailEditable = false.obs;
 
   @override
   void onInit() {
@@ -39,7 +42,7 @@ class LeilaoController extends GetxController {
       "criador": email,
       "valorMaximo": int.tryParse(valorMaximo.text) ?? 0
     };
-    // await _leilaoRepository.createLeilao(data);
+    await _leilaoRepository.createLeilao(data);
     getLeiloes();
   }
 
@@ -47,9 +50,80 @@ class LeilaoController extends GetxController {
     leilaoSelecionado.value = await _leilaoRepository.getLeilaoById(id);
   }
 
-  Future<void> _loadEmail() async {
+  Future<void> loadEmail() async {
     final prefs = await SharedPreferences.getInstance();
     final email = prefs.getString('userEmail') ?? '';
-    Get.find<LeilaoController>().emailController.text = email;
+    emailController.text = email;
+    update();
+  }
+
+  Future<void> saveEmail(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userEmail', email);
+  }
+
+  void toggleEmailEditable() {
+    isEmailEditable.value = !isEmailEditable.value;
+  }
+
+  Future<void> placeBid(int leilaoId, double amount) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('userEmail') ?? '';
+
+    try {
+      await _leilaoRepository.placeBid(leilaoId, email, amount);
+      await getLeilaoById(leilaoId);
+      Get.snackbar('Sucesso', 'Seu lance foi registrado com sucesso!');
+    } catch (e) {
+      Get.snackbar('Erro', 'Falha ao registrar o lance.');
+      Get.dialog(
+        AlertDialog(
+          title: Text('Erro'),
+          content:
+              Text('Falha ao registrar o lance. Por favor, tente novamente.'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Fechar'),
+              onPressed: () {
+                Get.back();
+              },
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Future<void> inscreverLeilao(int leilaoId, double lance) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('userEmail') ?? '';
+
+    var data = {
+      "usuarioEmail": email,
+      "lance": lance,
+    };
+
+    try {
+      await _leilaoRepository.inscreverLeilao(leilaoId, data);
+      Get.snackbar('Sucesso', 'Você está participando do leilão!');
+    } catch (e) {
+      Get.snackbar('Erro', 'Falha ao inscrever no leilão.');
+      Get.dialog(
+        AlertDialog(
+          title: Text('Erro'),
+          content:
+              Text('Falha ao inscrever no leilão. Por favor, tente novamente.'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Fechar'),
+              onPressed: () {
+                Get.back();
+              },
+            ),
+          ],
+        ),
+      );
+    }
+    getLeiloes();
   }
 }

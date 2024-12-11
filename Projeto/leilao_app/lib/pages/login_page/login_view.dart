@@ -21,10 +21,6 @@ class _LoginViewState extends State<LoginView> {
 
   final TextEditingController emailController = TextEditingController();
 
-    Future<void> saveEmail(String email) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('userEmail', email);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,7 +62,7 @@ class _LoginViewState extends State<LoginView> {
                   ElevatedButton(
                     onPressed: () async {
                       // Handle login logic here
-                      await saveEmail(emailController.text);
+                          await controller.saveEmail(emailController.text);
                       Get.toNamed('/home');
                     },
                     child: Text('Login', style: TextStyle(fontSize: 24)),
