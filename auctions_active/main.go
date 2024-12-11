@@ -419,7 +419,7 @@ func main() {
 	// Configura o roteador
 	r := router.New()
 	r.POST("/auctions/{auction_id}/bids", auctionHandler.HandleBid)
-	r.GET("/auctions/{auction_id}/bids", auctionHandler.handleWebSocket)
+	r.GET("/auctions/{auction_id}/bids/ws", auctionHandler.handleWebSocket)
 
 	p := fastp.NewPrometheus("fasthttp")
 	fastpHandler := p.WrapHandler(r)
