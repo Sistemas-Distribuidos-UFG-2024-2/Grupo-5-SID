@@ -62,7 +62,12 @@ public class LeilaoController {
     // Finalizar leilão (PUT)
     @PutMapping("/{id}/finalizar")
     public Leilao finalizarLeilao(@PathVariable Long id) {
-        return leilaoService.finalizarLeilao(id);
+        Leilao leilao = leilaoService.finalizarLeilao(id);
+        LeilaoMensagem leilaoMensagem = new LeilaoMensagem();
+        leilaoMensagem.setEmail(leilao.getVencedor());
+        leilaoMensagem.setLeilaoProduto(leilao.getProduto());
+        rabbitTemplate.convertAndSend("leilaoQueue", leilaoMensagem);
+        return leilao;
     }
 }
 
