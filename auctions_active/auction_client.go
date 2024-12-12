@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -79,6 +80,37 @@ func (c *AuctionClient) GetByID(id int64) (Auction, error) {
 	fmt.Printf("Auction found: %d, minimum value:%f\n", auction.ID, auction.LanceInicial)
 
 	return auction, nil
+}
+
+func (c *AuctionClient) Auction(id int64, bid Bid) error {
+	type Request struct {
+		Usuario string  `json:"usuarioEmail"`
+		Lance   float64 `json:"lance"`
+	}
+
+	req := Request{
+		Usuario: bid.AccountEmail,
+		Lance:   bid.Amount,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("falha ao serializar requisição: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/auctions/%d/inscrever", c.BaseURL, id)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("falha ao enviar requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("falha ao inscrever no leilão: status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func parseISO8601(input string) (time.Time, error) {

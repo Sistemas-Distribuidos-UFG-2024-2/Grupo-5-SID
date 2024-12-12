@@ -246,6 +246,12 @@ func (ah *AuctionHandler) HandleBid(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	go func() {
+		if err := ah.auctionClient.Auction(auctionID, bid); err != nil {
+			fmt.Printf("error to update the auction service: %v", err)
+		}
+	}()
+
 	auctionActive.LastValue = bid.Amount
 	fmt.Println(fmt.Sprintf("Updating the last value to %f on auction %d", auctionActive.LastValue, auctionActive.ID))
 
