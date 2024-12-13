@@ -9,7 +9,7 @@ spec:
     - protocol: TCP
       port: 6003
       targetPort: 6003
-      nodePort: 30003 # Porta externa para acessar do host
+      nodePort: 30003
   type: NodePort
 ---
 apiVersion: v1

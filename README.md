@@ -39,3 +39,8 @@ docker-compose up -d
 - Clique em Add data source (Adicionar fonte de dados).
 - Selecione Prometheus e configure a URL como http://prometheus_container:9090.
 - Salve as configurações.
+
+``
+kubectl exec -it redis-xxxxxx -n default -- redis-cli
+FLUSHALL
+``
