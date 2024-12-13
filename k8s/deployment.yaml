@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: auction-app
-        image: auction-app:latest # Altere para a imagem criada pelo Docker
+        image: auction-app:latest
         imagePullPolicy: Never
         ports:
         - containerPort: 6003

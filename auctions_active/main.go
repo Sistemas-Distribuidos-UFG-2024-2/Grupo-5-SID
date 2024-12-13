@@ -158,21 +158,6 @@ func (ah *AuctionHandler) addBidAndNotify(auction *AuctionActive, bid Bid) {
 	// ah.notifySubscribers(auction.ID, bid)
 }
 
-// Notifica os subscritores WebSocket de novos lances
-func (ah *AuctionHandler) notifySubscribers(auctionID int64, bid Bid) {
-	ah.mu.Lock()
-	defer ah.mu.Unlock()
-
-	conns := ah.subscribers[auctionID]
-	for _, conn := range conns {
-		bidData, _ := json.Marshal(bid)
-		if err := conn.WriteMessage(websocket.TextMessage, bidData); err != nil {
-			log.Printf("Error sending bid to subscriber: %v", err)
-			conn.Close() // Fechar conexão em caso de erro
-		}
-	}
-}
-
 func (ah *AuctionHandler) acquireLock(ctx context.Context, auctionID int64) (bool, error) {
 	lockKey := fmt.Sprintf("auction_lock:%d", auctionID)
 	success, err := ah.redisClient.SetNX(ctx, lockKey, 1, 10*time.Second).Result() // Expira em 10 segundos
@@ -314,12 +299,20 @@ func (ah *AuctionHandler) subscribeToRedis(auctionID int64) {
 }
 
 func (ah *AuctionHandler) stopRedisSubscription(auctionID int64) {
-	ah.mu.Lock()
+	fmt.Printf("stop subscription to channel auctionID: %d", auctionID)
 	if stopChan, exists := ah.activeChannels[auctionID]; exists {
 		close(stopChan)
 		delete(ah.activeChannels, auctionID)
 	}
-	ah.mu.Unlock()
+}
+
+func (ah *AuctionHandler) addSubscriber(auctionID int64, conn *websocket.Conn) {
+	ah.mu.Lock()
+	defer ah.mu.Unlock()
+	ah.subscribers[auctionID] = append(ah.subscribers[auctionID], conn)
+	if len(ah.subscribers[auctionID]) == 1 {
+		ah.subscribeToRedis(auctionID)
+	}
 }
 
 func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
@@ -329,27 +322,15 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	_, err = ah.GetAuctionActiveByID(auctionID)
-	if err != nil {
-		ctx.Error("Auction not found", fasthttp.StatusNotFound)
-		return
-	}
-
 	// Estabelece a conexão WebSocket
 	err = upgrader.Upgrade(ctx, func(conn *websocket.Conn) {
 		defer conn.Close()
 
-		// Adiciona o WebSocket aos subscritores
-		ah.mu.Lock()
-		ah.subscribers[auctionID] = append(ah.subscribers[auctionID], conn)
-		if len(ah.subscribers[auctionID]) == 1 {
-			ah.subscribeToRedis(auctionID) // Inicia a escuta Redis se for o primeiro cliente
-		}
-		ah.mu.Unlock()
+		ah.addSubscriber(auctionID, conn)
 
 		// Recupera e envia os lances do Redis
 		bidKey := fmt.Sprintf("auction:%d:bids", auctionID)
-		bidData, err := ah.redisClient.LRange(context.Background(), bidKey, 0, -1).Result()
+		bidData, err := ah.redisClient.LRange(context.Background(), bidKey, -30, -1).Result()
 		if err != nil {
 			log.Printf("failed to retrieve bids from redis: %v", err)
 			return
@@ -371,16 +352,18 @@ func (ah *AuctionHandler) handleWebSocket(ctx *fasthttp.RequestCtx) {
 		}
 
 		ah.mu.Lock()
+		defer ah.mu.Unlock()
+
 		for i, subscriber := range ah.subscribers[auctionID] {
 			if subscriber == conn {
+				log.Printf("subscriber removido")
 				ah.subscribers[auctionID] = append(ah.subscribers[auctionID][:i], ah.subscribers[auctionID][i+1:]...)
 				break
 			}
 		}
 		if len(ah.subscribers[auctionID]) == 0 {
-			ah.stopRedisSubscription(auctionID) // Para a escuta Redis se não houver mais clientes
+			ah.stopRedisSubscription(auctionID)
 		}
-		ah.mu.Unlock()
 	})
 	if err != nil {
 		log.Printf("Failed to establish WebSocket connection: %v", err)
