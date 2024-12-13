@@ -69,13 +69,13 @@ class _LoginViewState extends State<LoginView> {
                   ),
 
                   SizedBox(height: 16.0),
-                  ElevatedButton(
-                    onPressed: () {
-                      // Handle login logic here
-                      Get.toNamed('/create-user');
-                    },
-                    child: Text('Registrar', style: TextStyle(fontSize: 24)),
-                  ),
+                      // ElevatedButton(
+                      //   onPressed: () {
+                      //     // Handle login logic here
+                      //     Get.toNamed('/create-user');
+                      //   },
+                      //   child: Text('Registrar', style: TextStyle(fontSize: 24)),
+                      // ),
                 ],
               ),
             ),
