@@ -20,6 +20,16 @@ Cleverson Oliveira
 
 <img src="assets/sid.jpg" width="80" height="80" alt="Logo SID">
 
+# Resumo
+
+O SID, nosso sistema de leilão distribuído possui duas aplicações para o back-end e um front-end.
+Este sistema web possui a intenção de prover a ferramenta de um marketplace de leilão, onde as pessoas podem criar um leilão e/ou participar de leilões e no final é enviado e-mail para o vencedor.
+
+A nossa aplicação Leilão é responsável por criar e finalizar leilão, enviar e-mail para o vencedor, a aplicação foi escrita em Java, salvando os dados em um banco de dados relacional(Postgres) e para o envio de e-mail é utilizando um message broker (RabbitMQ)
+
+A aplicação Leilão Ativo é responsável por receber, tratar lances e responder os lances de um determinado leilão via websocket, e avisar à aplicação Leilão sobre quem foi o vencedor, a aplicação foi escrita em Golang salvando os dados em um banco não relacional em memória (Redis), realiza lock distribuído também com o Redis e utiliza message broker (RabbitMQ) para atualizar os clients do websocket.
+
+A aplicação do Front-end é responsável por realizar as interações com os serviços do back-end, para criar, visualizar e finalizar leilões, a aplicação foi escrita em Flutter para web.
 
 ## Como executar o projeto ?
 
@@ -27,20 +37,3 @@ Cleverson Oliveira
 ```
 docker-compose up -d
 ```
-
-2. Acessar o Grafana e o Prometheus
-   O Grafana estará disponível em http://localhost:3000 (credenciais padrão: admin / admin123).
-   O Prometheus estará disponível em http://localhost:9090.
-3. Configurar o Grafana
-   Após acessar o Grafana, você pode adicionar o Prometheus como uma fonte de dados:
-
-- Faça login no Grafana.
-- Vá para Configuration (Configuração) > Data Sources (Fontes de Dados).
-- Clique em Add data source (Adicionar fonte de dados).
-- Selecione Prometheus e configure a URL como http://prometheus_container:9090.
-- Salve as configurações.
-
-``
-kubectl exec -it redis-xxxxxx -n default -- redis-cli
-FLUSHALL
-``

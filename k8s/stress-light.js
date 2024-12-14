@@ -12,7 +12,7 @@ export const options = {
 let globalAmount = 1;
 
 export default function () {
-    const url = 'http://localhost:32300/auctions/7/bids';
+    const url = 'http://localhost:32300/auctions/3/bids';
 
     const currentAmount = globalAmount + (__VU * 10) + __ITER;
 

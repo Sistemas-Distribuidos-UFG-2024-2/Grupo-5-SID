@@ -3,8 +3,8 @@ import { check, sleep } from 'k6';
 
 export const options = {
     stages: [
-        { duration: '30s', target: 1000 },
-        { duration: '1m', target: 2000 },
+        { duration: '30s', target: 50 },
+        { duration: '1m', target: 200 },
         { duration: '30s', target: 0 },
     ],
 };
@@ -12,7 +12,7 @@ export const options = {
 let globalAmount = 1;
 
 export default function () {
-    const url = 'http://localhost:32300/auctions/1/bids';
+    const url = 'http://localhost:32300/auctions/2/bids';
 
     const currentAmount = globalAmount + (__VU * 10) + __ITER;
 
